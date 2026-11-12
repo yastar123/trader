@@ -59,11 +59,13 @@ export function RawSection() {
     <section id="keunggulan" className="container-page py-16 lg:py-24">
       <Reveal>
         <div className="max-w-3xl">
-          <h2 className="text-hero-display text-3xl sm:text-4xl lg:text-5xl">Keunggulan True RAW</h2>
+          <h2 className="text-hero-display text-3xl sm:text-4xl lg:text-5xl">
+            Keunggulan True RAW
+          </h2>
           <p className="mt-5 text-muted-foreground sm:text-lg">
-            Raw adalah perbedaan yang Anda nantikan. Trading di lingkungan IC dengan spread mulai 0.0
-            pips*, tanpa requotes, tanpa manipulasi harga, dan tanpa batasan. IC adalah penyedia CFD
-            online pilihan bagi trader bervolume tinggi, scalper, dan robot.
+            Raw adalah perbedaan yang Anda nantikan. Trading di lingkungan IC dengan spread mulai
+            0.0 pips*, tanpa requotes, tanpa manipulasi harga, dan tanpa batasan. IC adalah penyedia
+            CFD online pilihan bagi trader bervolume tinggi, scalper, dan robot.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a
@@ -183,7 +185,9 @@ export function StrengthSection() {
         <div className="mt-10 flex flex-wrap items-center justify-between gap-6 rounded-2xl border border-border bg-background/60 px-8 py-8">
           {strengthStats.map((s) => (
             <div key={s.label}>
-              <div className="font-display text-3xl font-extrabold text-primary sm:text-4xl">{s.value}</div>
+              <div className="font-display text-3xl font-extrabold text-primary sm:text-4xl">
+                {s.value}
+              </div>
               <div className="mt-1 text-xs text-muted-foreground sm:text-sm">{s.label}</div>
             </div>
           ))}
@@ -227,8 +231,8 @@ export function PlatformsSection() {
               Platform Trading yang Powerful
             </h2>
             <p className="mt-5 text-muted-foreground sm:text-lg">
-              Pilih platform favorit Anda dan trading kapan saja, di mana saja — dari desktop
-              hingga perangkat mobile, semua tersambung ke satu akun.
+              Pilih platform favorit Anda dan trading kapan saja, di mana saja — dari desktop hingga
+              perangkat mobile, semua tersambung ke satu akun.
             </p>
             <div className="mt-7 flex flex-wrap gap-2.5">
               {platformTabs.map((t) => (
@@ -329,10 +333,7 @@ export function GoldSection() {
               Trading Emas dengan IC — Kondisi yang Membentuk Standar Industri
             </h2>
             <ul className="mt-6 space-y-3">
-              {[
-                "Likuiditas melalui 25+ penyedia tepercaya",
-                "Eksekusi dalam <40 md",
-              ].map((p) => (
+              {["Likuiditas melalui 25+ penyedia tepercaya", "Eksekusi dalam <40 md"].map((p) => (
                 <li key={p} className="flex gap-3 text-sm text-muted-foreground sm:text-base">
                   <span className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" />
                   {p}
@@ -342,7 +343,9 @@ export function GoldSection() {
             <div className="mt-8 grid grid-cols-2 gap-4">
               <div className="rounded-xl border border-border bg-card p-5">
                 <div className="font-display text-3xl font-extrabold text-primary">&lt; 40ms</div>
-                <div className="mt-1 text-sm text-muted-foreground">Kecepatan Eksekusi Rata-Rata</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Kecepatan Eksekusi Rata-Rata
+                </div>
               </div>
               <div className="rounded-xl border border-border bg-card p-5">
                 <div className="font-display text-3xl font-extrabold text-primary">4.8/5</div>
@@ -383,16 +386,19 @@ export function AutomationSection() {
               Berikan Keunggulan pada Sistem Trading Otomatis Anda
             </h2>
             <p className="mt-5 text-muted-foreground sm:text-lg">
-              IC merupakan salah satu pilihan utama bagi trader otomatis. Mesin pencocokan order kami
-              yang berlokasi di pusat data Equinix NY4, New York, memproses jutaan transaksi setiap
-              hari — dengan lebih dari dua pertiga total transaksi berasal dari sistem trading
-              otomatis.
+              IC merupakan salah satu pilihan utama bagi trader otomatis. Mesin pencocokan order
+              kami yang berlokasi di pusat data Equinix NY4, New York, memproses jutaan transaksi
+              setiap hari — dengan lebih dari dua pertiga total transaksi berasal dari sistem
+              trading otomatis.
             </p>
           </div>
         </Reveal>
 
         <Reveal delay={150}>
-          <div id="mulai" className="mt-12 grid gap-6 rounded-2xl border border-border bg-background/60 p-8 sm:grid-cols-2">
+          <div
+            id="mulai"
+            className="mt-12 grid gap-6 rounded-2xl border border-border bg-background/60 p-8 sm:grid-cols-2"
+          >
             <div>
               <div className="flex items-center gap-3">
                 <Wallet className="size-5 text-primary" />
@@ -421,16 +427,22 @@ export function AutomationSection() {
                 Metode pembayaran
               </div>
               <div className="mt-4 flex flex-wrap gap-2.5">
-                {["Visa", "Mastercard", "Apple Pay", "Google Pay", "Skrill", "Neteller", "Online Payment"].map(
-                  (m) => (
-                    <span
-                      key={m}
-                      className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold"
-                    >
-                      {m}
-                    </span>
-                  )
-                )}
+                {[
+                  "Visa",
+                  "Mastercard",
+                  "Apple Pay",
+                  "Google Pay",
+                  "Skrill",
+                  "Neteller",
+                  "Online Payment",
+                ].map((m) => (
+                  <span
+                    key={m}
+                    className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold"
+                  >
+                    {m}
+                  </span>
+                ))}
               </div>
             </div>
           </div>

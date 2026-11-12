@@ -22,4 +22,41 @@ describe("App routing", () => {
 
     expect(matches.at(-1)?.fullPath).toBe(path);
   });
+
+  it.each([
+    "/beranda",
+    "/trade",
+    "/deposit",
+    "/withdraw",
+    "/kotak-surat",
+    "/jurnal",
+    "/pengaturan",
+    "/kalender-akademi",
+    "/komunitas",
+    "/panduan-pengguna",
+    "/tentang",
+  ])("matches the authenticated workspace page at %s", (path) => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes(path);
+
+    expect(matches.at(-1)?.fullPath).toBe(path);
+  });
+
+  it.each([
+    ["/admin/login", "/admin/login"],
+    ["/admin", "/admin/"],
+    ["/admin/markets", "/admin/markets"],
+    ["/admin/positions", "/admin/positions"],
+    ["/admin/deposit", "/admin/deposit"],
+    ["/admin/withdraw", "/admin/withdraw"],
+    ["/admin/users", "/admin/users"],
+    ["/admin/audit", "/admin/audit"],
+  ])("matches the admin portal page at %s", (path, expectedFullPath) => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes(path);
+
+    expect(matches.at(-1)?.fullPath).toBe(expectedFullPath);
+  });
 });

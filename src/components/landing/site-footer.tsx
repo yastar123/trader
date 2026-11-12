@@ -36,15 +36,38 @@ export function SiteFooter() {
             <div className="flex items-center gap-3">
               <span className="flex size-9 items-center justify-center rounded-md bg-primary">
                 <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
-                  <rect x="3" y="9" width="4" height="8" rx="1" fill="var(--color-primary-foreground)" />
-                  <rect x="10" y="5" width="4" height="10" rx="1" fill="var(--color-primary-foreground)" opacity="0.75" />
-                  <rect x="17" y="2" width="4" height="12" rx="1" fill="var(--color-primary-foreground)" />
+                  <rect
+                    x="3"
+                    y="9"
+                    width="4"
+                    height="8"
+                    rx="1"
+                    fill="var(--color-primary-foreground)"
+                  />
+                  <rect
+                    x="10"
+                    y="5"
+                    width="4"
+                    height="10"
+                    rx="1"
+                    fill="var(--color-primary-foreground)"
+                    opacity="0.75"
+                  />
+                  <rect
+                    x="17"
+                    y="2"
+                    width="4"
+                    height="12"
+                    rx="1"
+                    fill="var(--color-primary-foreground)"
+                  />
                 </svg>
               </span>
               <span className="font-display text-2xl font-extrabold tracking-tight">IC</span>
             </div>
             <p className="mt-4 max-w-xs text-sm text-muted-foreground">
-              Trading Edge Anda — broker online untuk trading Forex & CFD dengan spread mulai 0.0 pip*.
+              Trading Edge Anda — broker online untuk trading Forex & CFD dengan spread mulai 0.0
+              pip*.
             </p>
             <div className="mt-5 flex gap-2.5">
               {socials.map((s) => (
@@ -67,7 +90,10 @@ export function SiteFooter() {
                 <ul className="mt-4 space-y-2.5">
                   {c.links.map((l) => (
                     <li key={l}>
-                      <a href="#" className="text-sm text-muted-foreground transition-colors hover:text-primary">
+                      <a
+                        href="#"
+                        className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                      >
                         {l}
                       </a>
                     </li>
@@ -82,9 +108,9 @@ export function SiteFooter() {
           <p className="text-xs leading-relaxed text-muted-foreground">
             Peringatan Risiko: Perdagangan Forex dan CFD dengan margin memiliki risiko tinggi dan
             mungkin tidak cocok untuk semua investor. Konten situs ini disediakan hanya untuk tujuan
-            demonstrasi desain dan bukan merupakan nasihat investasi maupun ajakan untuk bertransaksi.
-            *Spread mulai 0.0 pip tersedia pada akun Raw Spread selama jam pasar normal dan dapat
-            berubah sewaktu-waktu.
+            demonstrasi desain dan bukan merupakan nasihat investasi maupun ajakan untuk
+            bertransaksi. *Spread mulai 0.0 pip tersedia pada akun Raw Spread selama jam pasar
+            normal dan dapat berubah sewaktu-waktu.
           </p>
           <p className="mt-4 text-xs text-muted-foreground">
             © {new Date().getFullYear()} IC. Halaman ini adalah tiruan desain untuk keperluan

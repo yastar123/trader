@@ -1,0 +1,678 @@
+import express, { type NextFunction, type Request, type Response } from "express";
+import fs from "node:fs";
+import http from "node:http";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { db, getStorageStatus, initDatabase, runMarketTickCycle } from "./src/server/db.ts";
+import {
+  generateSeedCandles,
+  memoryStore,
+  type CommunityPostRecord,
+  type InboxMessage,
+  type JournalRecord,
+  type MarketCategory,
+  type MarketInstrumentRecord,
+  type TradePosition,
+  type TrendBias,
+  type UserProfile,
+} from "./src/server/store.ts";
+
+// Load .env into process.env using Node 22 built-in loader if present
+try {
+  if (typeof process.loadEnvFile === "function" && fs.existsSync(".env")) {
+    process.loadEnvFile(".env");
+  }
+} catch {
+  // Ignore if .env is not readable
+}
+
+const PORT = Number(process.env.PORT) || 3010;
+const HOST = "0.0.0.0";
+const ADMIN_COOKIE_NAME = "ic_admin_session";
+
+function parseCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === name) return decodeURIComponent(rest.join("="));
+  }
+  return undefined;
+}
+
+async function getAdminEmailFromCookie(req: Request): Promise<string | undefined> {
+  const token = parseCookie(req.headers.cookie, ADMIN_COOKIE_NAME);
+  return db.getAdminEmailByToken(token);
+}
+
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const adminEmail = await getAdminEmailFromCookie(req);
+  if (!adminEmail) {
+    return res.status(401).json({ error: "Akses admin memerlukan login terlebih dahulu." });
+  }
+  res.locals["adminEmail"] = adminEmail;
+  return next();
+}
+
+function createApiRouter() {
+  const api = express.Router();
+  api.use(express.json({ limit: "10mb" }));
+
+  api.get("/health", (_req: Request, res: Response) => {
+    res.json({
+      status: "ok",
+      port: PORT,
+      ...getStorageStatus(),
+    });
+  });
+
+  // Trader Session & Profile (PostgreSQL-backed)
+  api.get("/session", async (_req: Request, res: Response) => {
+    const session = await db.getSession();
+    res.json(session);
+  });
+
+  api.post("/auth/login", async (req: Request, res: Response) => {
+    const body = req.body as { email?: string; name?: string };
+    const session = await db.loginOrRegisterTrader({
+      email: body.email,
+      name: body.name,
+      isRegister: false,
+    });
+    res.json(session);
+  });
+
+  api.post("/auth/register", async (req: Request, res: Response) => {
+    const body = req.body as { email?: string; name?: string };
+    const session = await db.loginOrRegisterTrader({
+      email: body.email,
+      name: body.name,
+      isRegister: true,
+    });
+    res.status(201).json(session);
+  });
+
+  api.post("/auth/logout", async (_req: Request, res: Response) => {
+    await db.logoutTrader();
+    res.json({ ok: true });
+  });
+
+  api.put("/profile", async (req: Request, res: Response) => {
+    const body = req.body as Partial<UserProfile>;
+    const updated = await db.updateProfile(body);
+    res.json(updated);
+  });
+
+  // Live Markets for Traders
+  api.get("/markets", async (_req: Request, res: Response) => {
+    const markets = await db.getEnabledMarkets();
+    res.json(markets);
+  });
+
+  // Trader Wallet (Deposit & Withdraw requests awaiting manual admin verification)
+  api.get("/wallet/transactions", async (_req: Request, res: Response) => {
+    const tx = await db.getWalletTransactions();
+    res.json(tx);
+  });
+
+  api.post("/wallet/deposit", async (req: Request, res: Response) => {
+    const body = req.body as {
+      amount?: number;
+      method?: string;
+      reference?: string;
+      proofImage?: string;
+      proofFileName?: string;
+    };
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount < 10) {
+      return res.status(400).json({ error: "Nominal deposit minimal $10.00." });
+    }
+    const proofImage = typeof body.proofImage === "string" ? body.proofImage.trim() : "";
+    if (!proofImage || !proofImage.startsWith("data:image/")) {
+      return res.status(400).json({
+        error: "Mohon unggah bukti transfer berupa gambar atau screenshot (PNG/JPG/WebP).",
+      });
+    }
+    if (proofImage.length > 8 * 1024 * 1024) {
+      return res.status(400).json({
+        error: "Ukuran gambar bukti transfer terlalu besar (maksimal 5 MB).",
+      });
+    }
+
+    const created = await db.createDeposit({
+      amount,
+      method: body.method?.trim() || "Transfer Bank BCA",
+      reference: body.reference?.trim() || `REF-${Math.floor(100000 + Math.random() * 900000)}`,
+      proofImage,
+      proofFileName: body.proofFileName?.trim() || "bukti-transfer.png",
+    });
+    return res.status(201).json(created);
+  });
+
+  api.post("/wallet/withdraw", async (req: Request, res: Response) => {
+    const body = req.body as { amount?: number; destination?: string };
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount < 10) {
+      return res.status(400).json({ error: "Nominal penarikan minimal $10.00." });
+    }
+    const result = await db.createWithdraw({
+      amount,
+      destination: body.destination?.trim() || "Bank BCA · 5210948120",
+    });
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.status(201).json(result.withdrawal);
+  });
+
+  // Trade Positions
+  api.get("/positions", async (_req: Request, res: Response) => {
+    const positions = await db.getUserPositions();
+    res.json(positions);
+  });
+
+  api.post("/positions", async (req: Request, res: Response) => {
+    const body = req.body as Partial<TradePosition>;
+    const result = await db.createPosition(body);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.status(201).json(result.position);
+  });
+
+  api.patch("/positions/:id/activate", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const updated = await db.activatePosition(id);
+    if (!updated) return res.status(404).json({ error: "Order tidak ditemukan" });
+    return res.json(updated);
+  });
+
+  api.patch("/positions/:id/close", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = (req.body ?? {}) as { pnl?: number };
+    const closed = await db.closePosition(id, body.pnl);
+    if (!closed) return res.status(404).json({ error: "Posisi tidak ditemukan" });
+    return res.json(closed);
+  });
+
+  // Journal
+  api.get("/journal", async (_req: Request, res: Response) => {
+    const entries = await db.getJournal();
+    res.json(entries);
+  });
+
+  api.post("/journal", async (req: Request, res: Response) => {
+    const body = req.body as Partial<JournalRecord>;
+    const created = await db.createJournal(body);
+    res.status(201).json(created);
+  });
+
+  api.delete("/journal/:id", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    await db.deleteJournal(id);
+    res.json({ ok: true });
+  });
+
+  // Inbox Messages
+  api.get("/messages", async (_req: Request, res: Response) => {
+    const msgs = await db.getMessages();
+    res.json(msgs);
+  });
+
+  api.post("/messages", async (req: Request, res: Response) => {
+    const body = req.body as { subject?: string; body?: string };
+    const created = await db.createMessage(body);
+    res.status(201).json(created);
+  });
+
+  api.patch("/messages/:id", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const patch = req.body as Partial<Pick<InboxMessage, "unread" | "archived">>;
+    const updated = await db.updateMessage(id, patch);
+    if (!updated) return res.status(404).json({ error: "Pesan tidak ditemukan" });
+    return res.json(updated);
+  });
+
+  api.delete("/messages/:id", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    await db.deleteMessage(id);
+    res.json({ ok: true });
+  });
+
+  // Community
+  api.get("/community", async (_req: Request, res: Response) => {
+    const posts = await db.getCommunityPosts();
+    res.json(posts);
+  });
+
+  api.post("/community", async (req: Request, res: Response) => {
+    const body = req.body as Partial<CommunityPostRecord>;
+    const created = await db.createCommunityPost(body);
+    res.status(201).json(created);
+  });
+
+  api.post("/community/:id/like", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const updated = await db.toggleCommunityLike(id);
+    if (!updated) return res.status(404).json({ error: "Post tidak ditemukan" });
+    return res.json(updated);
+  });
+
+  api.post("/community/:id/comments", async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = req.body as { author?: string; text?: string };
+    const text = body.text?.trim();
+    if (!text) return res.status(400).json({ error: "Komentar wajib diisi" });
+    const updated = await db.addCommunityComment(id, { author: body.author, text });
+    if (!updated) return res.status(404).json({ error: "Post tidak ditemukan" });
+    return res.status(201).json(updated);
+  });
+
+  // ---------------- ADMIN AUTH & PORTAL ROUTES ----------------
+
+  api.get("/admin/session", async (req: Request, res: Response) => {
+    const email = await getAdminEmailFromCookie(req);
+    res.json({
+      authenticated: Boolean(email),
+      email: email ?? null,
+    });
+  });
+
+  api.post("/admin/login", async (req: Request, res: Response) => {
+    const body = req.body as { email?: string; password?: string };
+    const expectedEmail = process.env["ADMIN_EMAIL"]?.trim();
+    const expectedPassword = process.env["ADMIN_PASSWORD"];
+
+    if (!expectedEmail || !expectedPassword) {
+      return res
+        .status(500)
+        .json({ error: "Kredensial admin belum dikonfigurasi pada environment (.env)." });
+    }
+
+    const email = body.email?.trim() ?? "";
+    const password = body.password ?? "";
+    if (email !== expectedEmail || password !== expectedPassword) {
+      return res.status(401).json({ error: "Email atau kata sandi admin tidak sesuai." });
+    }
+
+    const token = await db.createAdminSession(expectedEmail);
+    res.setHeader(
+      "Set-Cookie",
+      `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`,
+    );
+    return res.json({ authenticated: true, email: expectedEmail });
+  });
+
+  api.post("/admin/logout", async (req: Request, res: Response) => {
+    const token = parseCookie(req.headers.cookie, ADMIN_COOKIE_NAME);
+    await db.deleteAdminSession(token);
+    res.setHeader("Set-Cookie", `${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+    res.json({ ok: true });
+  });
+
+  api.get("/admin/overview", requireAdmin, async (_req: Request, res: Response) => {
+    const overview = await db.getAdminOverview();
+    res.json(overview);
+  });
+
+  api.get("/admin/deposits", requireAdmin, async (_req: Request, res: Response) => {
+    const deposits = await db.getAdminDeposits();
+    res.json(deposits);
+  });
+
+  api.patch("/admin/deposits/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = req.body as { decision?: "approve" | "reject"; note?: string };
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.reviewDeposit({
+      id,
+      decision: body.decision === "approve" ? "approve" : "reject",
+      note: body.note,
+      adminEmail,
+    });
+    if (result.error) {
+      return res.status(result.status ?? 400).json({ error: result.error });
+    }
+    return res.json(result.deposit);
+  });
+
+  api.get("/admin/withdrawals", requireAdmin, async (_req: Request, res: Response) => {
+    const withdrawals = await db.getAdminWithdrawals();
+    res.json(withdrawals);
+  });
+
+  api.patch("/admin/withdrawals/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = req.body as { decision?: "approve" | "reject"; note?: string };
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.reviewWithdraw({
+      id,
+      decision: body.decision === "approve" ? "approve" : "reject",
+      note: body.note,
+      adminEmail,
+    });
+    if (result.error) {
+      return res.status(result.status ?? 400).json({ error: result.error });
+    }
+    return res.json(result.withdrawal);
+  });
+
+  api.get("/admin/users", requireAdmin, async (_req: Request, res: Response) => {
+    const users = await db.getAdminUsers();
+    res.json(users);
+  });
+
+  api.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = req.body as Partial<{
+      status: "Aktif" | "Ditangguhkan";
+      kycStatus: "Terverifikasi" | "Menunggu";
+      accountType: "Raw Spread" | "Standard";
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const updated = await db.updateAdminUser({
+      id,
+      status: body.status,
+      kycStatus: body.kycStatus,
+      accountType: body.accountType,
+      adminEmail,
+    });
+    if (!updated) return res.status(404).json({ error: "Pengguna tidak ditemukan." });
+    return res.json(updated);
+  });
+
+  api.get("/admin/audit", requireAdmin, async (_req: Request, res: Response) => {
+    const logs = await db.getAdminAudit();
+    res.json(logs);
+  });
+
+  // Admin Market & Chart Direction Control (CRUD)
+  api.get("/admin/markets", requireAdmin, async (_req: Request, res: Response) => {
+    const markets = await db.getAllMarkets();
+    res.json(markets);
+  });
+
+  api.post("/admin/markets", requireAdmin, async (req: Request, res: Response) => {
+    const body = req.body as Partial<{
+      symbol: string;
+      name: string;
+      category: MarketCategory;
+      basePrice: number;
+      spreadValue: number;
+      pipSize: number;
+      tickStep: number;
+      decimals: number;
+      contractSize: number;
+      quoteInJpy: boolean;
+      trendBias: TrendBias;
+      trendStrength: 1 | 2 | 3;
+      enabled: boolean;
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const symbol = (body.symbol ?? "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (!symbol || symbol.length < 3) {
+      return res
+        .status(400)
+        .json({ error: "Simbol instrumen minimal 3 karakter (mis. ETHUSD, USOIL)." });
+    }
+
+    const decimals = Math.max(0, Math.min(5, Number(body.decimals ?? 2)));
+    const basePrice = Number(body.basePrice);
+    if (!Number.isFinite(basePrice) || basePrice <= 0) {
+      return res.status(400).json({ error: "Harga awal harus lebih besar dari 0." });
+    }
+    const pipSize = Math.max(0.00001, Number(body.pipSize) || 0.01);
+    const spreadValue = Math.max(0, Number(body.spreadValue) || pipSize * 2);
+    const tickStep = Math.max(0.00001, Number(body.tickStep) || pipSize * 1.5);
+    const contractSize = Math.max(1, Number(body.contractSize) || 100);
+    const spreadPips = pipSize > 0 ? (spreadValue / pipSize).toFixed(1) : "0.0";
+    const candles = generateSeedCandles(basePrice, tickStep, decimals);
+
+    const created: MarketInstrumentRecord = {
+      symbol,
+      name: body.name?.trim() || symbol,
+      category: body.category ?? "Kripto / Coin",
+      basePrice,
+      bid: Number(basePrice.toFixed(decimals)),
+      ask: Number((basePrice + spreadValue).toFixed(decimals)),
+      prevBid: Number(basePrice.toFixed(decimals)),
+      openDay: candles[0]?.open ?? basePrice,
+      spreadValue,
+      spreadLabel: spreadPips,
+      pipSize,
+      tickStep,
+      decimals,
+      contractSize,
+      quoteInJpy: Boolean(body.quoteInJpy),
+      trendBias: body.trendBias ?? "Netral",
+      trendStrength: body.trendStrength === 1 || body.trendStrength === 3 ? body.trendStrength : 2,
+      enabled: body.enabled ?? true,
+      candles,
+    };
+
+    const result = await db.createMarket(created, adminEmail);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.status(201).json(result.market);
+  });
+
+  api.patch("/admin/markets/:symbol", requireAdmin, async (req: Request, res: Response) => {
+    const symbolParam = String(req.params["symbol"] ?? "").toUpperCase();
+    const markets = await db.getAllMarkets();
+    const target = markets.find((m) => m.symbol === symbolParam);
+    if (!target) return res.status(404).json({ error: "Instrumen tidak ditemukan." });
+
+    const body = req.body as Partial<{
+      name: string;
+      category: MarketCategory;
+      basePrice: number;
+      bid: number;
+      spreadValue: number;
+      pipSize: number;
+      tickStep: number;
+      decimals: number;
+      contractSize: number;
+      trendBias: TrendBias;
+      trendStrength: 1 | 2 | 3;
+      enabled: boolean;
+      nudgeDirection: "up" | "down";
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+
+    const nextDecimals =
+      typeof body.decimals === "number" ? Math.max(0, Math.min(5, body.decimals)) : target.decimals;
+    const nextPip =
+      typeof body.pipSize === "number" && body.pipSize > 0 ? body.pipSize : target.pipSize;
+    const nextSpread =
+      typeof body.spreadValue === "number" && body.spreadValue >= 0
+        ? body.spreadValue
+        : target.spreadValue;
+    const nextTickStep =
+      typeof body.tickStep === "number" && body.tickStep > 0 ? body.tickStep : target.tickStep;
+
+    let nextBid =
+      typeof body.bid === "number" && body.bid > 0
+        ? Number(body.bid.toFixed(nextDecimals))
+        : target.bid;
+
+    if (body.nudgeDirection === "up") {
+      nextBid = Number((nextBid + nextTickStep * 6).toFixed(nextDecimals));
+    } else if (body.nudgeDirection === "down") {
+      nextBid = Number(Math.max(nextPip * 5, nextBid - nextTickStep * 6).toFixed(nextDecimals));
+    }
+
+    const updated: MarketInstrumentRecord = {
+      ...target,
+      name: body.name?.trim() || target.name,
+      category: body.category ?? target.category,
+      basePrice:
+        typeof body.basePrice === "number" && body.basePrice > 0
+          ? body.basePrice
+          : typeof body.bid === "number" && body.bid > 0
+            ? nextBid
+            : target.basePrice,
+      prevBid: target.bid,
+      bid: nextBid,
+      ask: Number((nextBid + nextSpread).toFixed(nextDecimals)),
+      spreadValue: nextSpread,
+      spreadLabel: nextPip > 0 ? (nextSpread / nextPip).toFixed(1) : target.spreadLabel,
+      pipSize: nextPip,
+      tickStep: nextTickStep,
+      decimals: nextDecimals,
+      contractSize:
+        typeof body.contractSize === "number" && body.contractSize >= 1
+          ? body.contractSize
+          : target.contractSize,
+      trendBias: body.trendBias ?? target.trendBias,
+      trendStrength:
+        body.trendStrength === 1 || body.trendStrength === 2 || body.trendStrength === 3
+          ? body.trendStrength
+          : target.trendStrength,
+      enabled: typeof body.enabled === "boolean" ? body.enabled : target.enabled,
+    };
+
+    const lastCandle = updated.candles[updated.candles.length - 1];
+    if (lastCandle && (body.nudgeDirection || typeof body.bid === "number")) {
+      lastCandle.close = updated.bid;
+      lastCandle.high = Number(Math.max(lastCandle.high, updated.bid).toFixed(nextDecimals));
+      lastCandle.low = Number(Math.min(lastCandle.low, updated.bid).toFixed(nextDecimals));
+    }
+
+    const saved = await db.updateMarket(symbolParam, updated, adminEmail);
+    return res.json(saved);
+  });
+
+  api.delete("/admin/markets/:symbol", requireAdmin, async (req: Request, res: Response) => {
+    const symbolParam = String(req.params["symbol"] ?? "").toUpperCase();
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const removed = await db.deleteMarket(symbolParam, adminEmail);
+    if (!removed) return res.status(404).json({ error: "Instrumen tidak ditemukan." });
+    return res.json({ ok: true });
+  });
+
+  // Admin All-User Live Positions Monitor
+  api.get("/admin/positions", requireAdmin, async (_req: Request, res: Response) => {
+    const enriched = await db.getAdminPositions();
+    res.json(enriched);
+  });
+
+  api.patch("/admin/positions/:id/close", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const closed = await db.adminClosePosition(id, adminEmail);
+    if (!closed) return res.status(404).json({ error: "Posisi tidak ditemukan." });
+    return res.json(closed);
+  });
+
+  // API error handler
+  api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const message = err instanceof Error ? err.message : "Terjadi kesalahan pada server.";
+    res.status(500).json({ error: message });
+  });
+
+  return api;
+}
+
+let marketTimerStarted = false;
+
+async function startServer() {
+  await initDatabase();
+
+  const app = express();
+
+  if (!marketTimerStarted) {
+    marketTimerStarted = true;
+    setInterval(runMarketTickCycle, 900);
+  }
+
+  app.use("/api", createApiRouter());
+
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+    });
+    app.use(vite.middlewares);
+  } else {
+    const clientDir = path.resolve(process.cwd(), "dist/client");
+    if (fs.existsSync(clientDir)) {
+      app.use(express.static(clientDir, { index: false }));
+    }
+
+    const ssrCandidates = [
+      path.resolve(process.cwd(), "dist/server/server.js"),
+      path.resolve(process.cwd(), "dist/server/index.mjs"),
+    ];
+    const ssrEntryPath = ssrCandidates.find((candidate) => fs.existsSync(candidate));
+    if (ssrEntryPath) {
+      const serverMod = (await import(pathToFileURL(ssrEntryPath).href)) as {
+        default?: { fetch: (req: globalThis.Request) => Promise<globalThis.Response> };
+      };
+      const fetchHandler = serverMod.default?.fetch;
+      if (fetchHandler) {
+        app.use(async (req: Request, res: Response, next) => {
+          try {
+            const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+            const headers = new Headers();
+            for (const [key, val] of Object.entries(req.headers)) {
+              if (typeof val === "string") headers.set(key, val);
+              else if (Array.isArray(val)) headers.set(key, val.join(", "));
+            }
+            const webReq = new globalThis.Request(url, {
+              method: req.method,
+              headers,
+            });
+            const webRes = await fetchHandler(webReq);
+            res.status(webRes.status);
+            webRes.headers.forEach((value, key) => {
+              if (key.toLowerCase() !== "content-encoding") {
+                res.setHeader(key, value);
+              }
+            });
+            const arrayBuf = await webRes.arrayBuffer();
+            res.send(Buffer.from(arrayBuf));
+          } catch (err) {
+            next(err);
+          }
+        });
+      }
+    }
+
+    app.use((_req: Request, res: Response) => {
+      const fallbackHtml = path.join(clientDir, "index.html");
+      if (fs.existsSync(fallbackHtml)) {
+        res.sendFile(fallbackHtml);
+      } else {
+        res.status(404).send("Not found");
+      }
+    });
+  }
+
+  // Bind port utama sesuai .env (default 3010)
+  const primaryServer = http.createServer(app);
+  primaryServer.listen(PORT, HOST, () => {
+    console.log(`Express + React server running at http://${HOST}:${PORT}`);
+  });
+
+  // Di environment preview container (APPLET_ID), pastikan port 3010 & 3000 sama-sama aktif
+  // agar permintaan pengguna pada port 3010 dan iframe preview pada port 3000 berjalan lancar.
+  const secondaryPorts = new Set<number>();
+  if (process.env.APPLET_ID) {
+    if (PORT !== 3010) secondaryPorts.add(3010);
+    if (PORT !== 3000) secondaryPorts.add(3000);
+  }
+  for (const extraPort of secondaryPorts) {
+    const mirrorServer = http.createServer(app);
+    mirrorServer.on("error", () => {
+      // Abaikan jika port sekunder sudah digunakan oleh proses lain
+    });
+    mirrorServer.listen(extraPort, HOST, () => {
+      console.log(`Preview bridge active at http://${HOST}:${extraPort}`);
+    });
+  }
+}
+
+void startServer();

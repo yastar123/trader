@@ -136,7 +136,9 @@ export function Hero() {
                 onClick={() => setActive(i)}
                 aria-label={`Slide ${i + 1}`}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === active ? "w-8 bg-primary" : "w-4 bg-muted-foreground/50 hover:bg-muted-foreground"
+                  i === active
+                    ? "w-8 bg-primary"
+                    : "w-4 bg-muted-foreground/50 hover:bg-muted-foreground"
                 }`}
               />
             ))}
@@ -150,7 +152,9 @@ export function Hero() {
           {stats.map((s, i) => (
             <Reveal key={s.label} delay={i * 80}>
               <div className="text-center">
-                <div className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{s.value}</div>
+                <div className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+                  {s.value}
+                </div>
                 <div className="label-stat mt-2 text-muted-foreground">{s.label}</div>
               </div>
             </Reveal>
@@ -186,7 +190,8 @@ export function Hero() {
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
-                    Spread <span className="font-mono font-semibold text-foreground">{t.spread}</span>
+                    Spread{" "}
+                    <span className="font-mono font-semibold text-foreground">{t.spread}</span>
                   </span>
                   <div className="flex gap-2">
                     <a

@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import heroRace from "@/assets/hero-race.jpg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { syncLoginWithExpress } from "@/lib/fe-session";
 
 type AccountPageProps = {
   mode: "login" | "register";
@@ -11,17 +12,27 @@ type AccountPageProps = {
 
 export function AccountPage({ mode }: AccountPageProps) {
   const isRegister = mode === "register";
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
-  const [notice, setNotice] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setNotice(true);
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get("email") ?? "").trim();
+    const fullName = String(formData.get("name") ?? "").trim();
+    await syncLoginWithExpress({
+      email: email || undefined,
+      name: fullName || (email ? email.split("@")[0] : undefined),
+    });
+    void navigate({ to: "/beranda" });
   }
 
   return (
     <main className="grid min-h-dvh bg-background lg:grid-cols-[0.95fr_1.05fr]">
-      <section className="relative hidden min-h-dvh overflow-hidden bg-card lg:block" aria-label="IC Trading">
+      <section
+        className="relative hidden min-h-dvh overflow-hidden bg-card lg:block"
+        aria-label="IC Trading"
+      >
         <img
           src={heroRace}
           alt=""
@@ -39,7 +50,9 @@ export function AccountPage({ mode }: AccountPageProps) {
             </span>
           </Link>
           <div className="max-w-lg pb-4">
-            <p className="mb-4 text-xs font-semibold uppercase text-primary">Performa dimulai di sini</p>
+            <p className="mb-4 text-xs font-semibold uppercase text-primary">
+              Performa dimulai di sini
+            </p>
             <h1 className="font-display text-4xl font-bold leading-tight xl:text-5xl">
               Ambil langkah berikutnya dengan percaya diri.
             </h1>
@@ -53,7 +66,10 @@ export function AccountPage({ mode }: AccountPageProps) {
 
       <section className="flex min-h-dvh items-center justify-center px-5 py-10 sm:px-10">
         <div className="w-full max-w-md">
-          <Link to="/" className="mb-10 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+          <Link
+            to="/"
+            className="mb-10 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
             <ArrowLeft className="size-4" />
             Kembali ke beranda
           </Link>
@@ -75,7 +91,9 @@ export function AccountPage({ mode }: AccountPageProps) {
               to="/login"
               aria-current={!isRegister ? "page" : undefined}
               className={`border-b-2 px-3 py-3 text-center text-sm font-semibold transition-colors ${
-                !isRegister ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                !isRegister
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
               Masuk
@@ -84,7 +102,9 @@ export function AccountPage({ mode }: AccountPageProps) {
               to="/register"
               aria-current={isRegister ? "page" : undefined}
               className={`border-b-2 px-3 py-3 text-center text-sm font-semibold transition-colors ${
-                isRegister ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                isRegister
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
               Daftar
@@ -94,12 +114,23 @@ export function AccountPage({ mode }: AccountPageProps) {
           <form className="space-y-5" onSubmit={handleSubmit}>
             {isRegister && (
               <div className="space-y-2">
-                <label htmlFor="full-name" className="text-sm font-medium">Nama lengkap</label>
-                <Input id="full-name" name="name" autoComplete="name" placeholder="Nama lengkap Anda" required maxLength={100} />
+                <label htmlFor="full-name" className="text-sm font-medium">
+                  Nama lengkap
+                </label>
+                <Input
+                  id="full-name"
+                  name="name"
+                  autoComplete="name"
+                  placeholder="Nama lengkap Anda"
+                  required
+                  maxLength={100}
+                />
               </div>
             )}
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">Alamat email</label>
+              <label htmlFor="email" className="text-sm font-medium">
+                Alamat email
+              </label>
               <Input
                 id="email"
                 name="email"
@@ -112,8 +143,12 @@ export function AccountPage({ mode }: AccountPageProps) {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <label htmlFor="password" className="text-sm font-medium">Kata sandi</label>
-                {!isRegister && <span className="text-xs text-muted-foreground">Lupa kata sandi?</span>}
+                <label htmlFor="password" className="text-sm font-medium">
+                  Kata sandi
+                </label>
+                {!isRegister && (
+                  <span className="text-xs text-muted-foreground">Lupa kata sandi?</span>
+                )}
               </div>
               <div className="relative">
                 <Input
@@ -142,7 +177,12 @@ export function AccountPage({ mode }: AccountPageProps) {
 
             {isRegister && (
               <label className="flex items-start gap-3 text-sm leading-5 text-muted-foreground">
-                <input type="checkbox" name="terms" required className="mt-1 size-4 accent-primary" />
+                <input
+                  type="checkbox"
+                  name="terms"
+                  required
+                  className="mt-1 size-4 accent-primary"
+                />
                 <span>Saya menyetujui syarat dan ketentuan serta kebijakan privasi.</span>
               </label>
             )}
@@ -150,11 +190,6 @@ export function AccountPage({ mode }: AccountPageProps) {
             <Button type="submit" className="h-11 w-full text-sm font-bold">
               {isRegister ? "Buat akun" : "Masuk"}
             </Button>
-            {notice && (
-              <p role="status" className="border-l-2 border-primary px-3 py-2 text-sm leading-5 text-muted-foreground">
-                Formulir ini hanya tampilan dan belum terhubung ke akun.
-              </p>
-            )}
           </form>
 
           <p className="mt-8 text-center text-sm text-muted-foreground">

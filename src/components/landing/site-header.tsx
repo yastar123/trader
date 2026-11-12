@@ -51,7 +51,10 @@ export function SiteHeader() {
               </span>
             ))}
             <span className="mx-2 text-border">|</span>
-            <a href="#" className="flex items-center gap-1.5 transition-colors hover:text-foreground">
+            <a
+              href="#"
+              className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+            >
               <Globe className="size-3.5" />
               ID
               <ChevronDown className="size-3" />
@@ -67,9 +70,31 @@ export function SiteHeader() {
           <span className="flex size-9 items-center justify-center rounded-md bg-primary">
             {/* Candlestick mark */}
             <svg viewBox="0 0 24 24" className="size-5" fill="none" aria-hidden="true">
-              <rect x="3" y="9" width="4" height="8" rx="1" fill="var(--color-primary-foreground)" />
-              <rect x="10" y="5" width="4" height="10" rx="1" fill="var(--color-primary-foreground)" opacity="0.75" />
-              <rect x="17" y="2" width="4" height="12" rx="1" fill="var(--color-primary-foreground)" />
+              <rect
+                x="3"
+                y="9"
+                width="4"
+                height="8"
+                rx="1"
+                fill="var(--color-primary-foreground)"
+              />
+              <rect
+                x="10"
+                y="5"
+                width="4"
+                height="10"
+                rx="1"
+                fill="var(--color-primary-foreground)"
+                opacity="0.75"
+              />
+              <rect
+                x="17"
+                y="2"
+                width="4"
+                height="12"
+                rx="1"
+                fill="var(--color-primary-foreground)"
+              />
             </svg>
           </span>
           <span className="leading-tight">
