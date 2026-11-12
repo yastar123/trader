@@ -1,0 +1,17 @@
+{
+  "source": "replit",
+  "archive": "lovable-export-e441c8b4.zip",
+  "capabilities": [
+    { "capability": "application code", "source": "Uploaded Indonesian IC trading-information landing page", "outcome": "All seven landing-page sections are active at /; page title, desktop content, mobile content, and navigation were verified", "status": "verified", "next_action": "None for the included static landing page" },
+    { "capability": "database schema", "source": "No schema source detected in the uploaded archive", "outcome": "No database-backed behavior is included", "status": "verified", "next_action": "None" },
+    { "capability": "application records", "source": "No record export detected", "outcome": "No application records are needed for the static page", "status": "verified", "next_action": "None" },
+    { "capability": "authentication identities", "source": "No authentication implementation or user export detected", "outcome": "The included page has no working sign-in or account workflow", "status": "verified", "next_action": "Provide source pages and specifications if sign-in is required" },
+    { "capability": "authorization", "source": "No role or permission behavior detected", "outcome": "No access-control behavior is included", "status": "verified", "next_action": "None" },
+    { "capability": "uploaded file bytes", "source": "Four image pointers were present but their source URLs return 404 in this preview", "outcome": "Replaced with four project-local images; all six rendered page images load successfully", "status": "verified", "next_action": "None" },
+    { "capability": "external providers and secrets", "source": "No environment variables or provider setup detected", "outcome": "No external integration is included; displayed market values are static examples", "status": "verified", "next_action": "None for the included static page" },
+    { "capability": "public endpoints, callbacks, webhooks, schedules", "source": "No app-specific external endpoint or schedule detected", "outcome": "No external callers are included", "status": "verified", "next_action": "None" },
+    { "capability": "cutover", "source": "Static landing page source", "outcome": "No external service cutover is needed for the preview", "status": "verified", "next_action": "None" },
+    { "capability": "preview verification", "source": "Running app preview", "outcome": "Desktop and mobile rendering, all seven sections, six image instances, mobile menu navigation, and the /platform anchor were verified; no browser errors were reported", "status": "verified", "next_action": "None" },
+    { "capability": "live trading, account login, and other production pages", "source": "Not present in the uploaded archive; buy/sell and account links are placeholders", "outcome": "Not implemented; this preview is a static information site and does not execute trades or authenticate accounts", "status": "not_included", "next_action": "Provide the relevant source pages and official service specifications if these capabilities are required" }
+  ]
+}
