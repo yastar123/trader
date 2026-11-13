@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Lock, Search, SlidersHorizontal, X } from "lucide-react";
+import { AdminDeleteAction } from "@/components/admin/admin-delete-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import type { AdminPositionRecord, TradingRulesRecord } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
@@ -213,6 +214,44 @@ export function AdminPositionsView() {
         });
         await loadPositions();
       }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDeletePosition(pos: AdminPositionRecord): Promise<boolean> {
+    setBusyId(pos.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/positions/${encodeURIComponent(pos.id)}`, {
+        method: "DELETE",
+      });
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setFeedback({
+          type: "err",
+          text: payload?.error ?? `Gagal menghapus posisi ${pos.id}.`,
+        });
+        return false;
+      }
+
+      setPositions((current) => current.filter((position) => position.id !== pos.id));
+      setFeedback({ type: "ok", text: `Posisi ${pos.id} berhasil dihapus.` });
+      try {
+        await loadPositions();
+      } catch {
+        setFeedback({
+          type: "err",
+          text: `Posisi ${pos.id} sudah dihapus, tetapi daftar gagal dimuat ulang.`,
+        });
+      }
+      return true;
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : `Gagal menghapus posisi ${pos.id}.`,
+      });
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -695,21 +734,28 @@ export function AdminPositionsView() {
                           </div>
                         </td>
                         <td className="px-4 py-3.5 text-right">
-                          {pos.status !== "Ditutup" ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              disabled={busyId === pos.id}
-                              onClick={() => void handleForceClose(pos)}
-                              className="h-8 gap-1 text-xs text-muted-foreground hover:text-destructive"
-                            >
-                              <X className="size-3.5" />
-                              <span>{pos.status === "Terbuka" ? "Tutup" : "Batal"}</span>
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Selesai</span>
-                          )}
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            {pos.status !== "Ditutup" ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                disabled={busyId === pos.id}
+                                onClick={() => void handleForceClose(pos)}
+                                className="h-8 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                              >
+                                <X className="size-3.5" />
+                                <span>{pos.status === "Terbuka" ? "Tutup" : "Batal"}</span>
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Selesai</span>
+                            )}
+                            <AdminDeleteAction
+                              itemLabel={`posisi ${pos.id}`}
+                              disabled={busyId === pos.id || savingProfitId === pos.id}
+                              onDelete={() => handleDeletePosition(pos)}
+                            />
+                          </div>
                         </td>
                       </tr>
                     );

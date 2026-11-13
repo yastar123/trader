@@ -31,7 +31,12 @@ export function PengaturanView() {
 
   const [sessions, setSessions] = useState([
     { id: "SES-1", device: "Chrome di macOS · Jakarta", status: "Sesi Saat Ini", active: true },
-    { id: "SES-2", device: "IC Mobile App · iOS 19", status: "Aktif 2 jam lalu", active: false },
+    {
+      id: "SES-2",
+      device: "wmTrader Mobile App · iOS 19",
+      status: "Aktif 2 jam lalu",
+      active: false,
+    },
   ]);
 
   const [savedNotice, setSavedNotice] = useState<string | null>(null);

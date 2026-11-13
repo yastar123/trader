@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { DepositView } from "@/components/workspace/deposit-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Deposit | IC Trading";
-const pageDescription = "Pengajuan deposit dana akun trading dengan verifikasi manual admin.";
+const pageTitle = "Deposit | wmTrader";
+const pageDescription = "Pengajuan deposit dana akun wmTrader dengan verifikasi manual admin.";
 
 export const Route = createFileRoute("/deposit")({
   head: () => ({

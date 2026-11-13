@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { JurnalView } from "@/components/workspace/jurnal-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Jurnal Trading | IC Trading";
-const pageDescription = "Catatan transaksi, evaluasi strategi, dan statistik performa trading.";
+const pageTitle = "Jurnal Trading | wmTrader";
+const pageDescription =
+  "Catatan transaksi, evaluasi strategi, dan statistik performa trading wmTrader.";
 
 export const Route = createFileRoute("/jurnal")({
   head: () => ({

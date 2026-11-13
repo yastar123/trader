@@ -313,28 +313,40 @@ function createApiRouter() {
 
   // Inbox Messages
   api.get("/messages", async (_req: Request, res: Response) => {
-    const msgs = await db.getMessages();
-    res.json(msgs);
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk melihat kotak surat." });
+    const msgs = await db.getMessagesForUser(userId);
+    return res.json(msgs);
   });
 
   api.post("/messages", async (req: Request, res: Response) => {
     const body = req.body as { subject?: string; body?: string };
-    const created = await db.createMessage(body);
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk mengirim pesan." });
+    if (!body.subject?.trim() || !body.body?.trim()) {
+      return res.status(400).json({ error: "Subjek dan isi pesan wajib diisi." });
+    }
+    const created = await db.createMessage(body, userId);
     res.status(201).json(created);
   });
 
   api.patch("/messages/:id", async (req: Request, res: Response) => {
     const id = String(req.params["id"] ?? "");
     const patch = req.body as Partial<Pick<InboxMessage, "unread" | "archived">>;
-    const updated = await db.updateMessage(id, patch);
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk mengubah pesan." });
+    const updated = await db.updateMessageForUser(id, userId, patch);
     if (!updated) return res.status(404).json({ error: "Pesan tidak ditemukan" });
     return res.json(updated);
   });
 
   api.delete("/messages/:id", async (req: Request, res: Response) => {
     const id = String(req.params["id"] ?? "");
-    await db.deleteMessage(id);
-    res.json({ ok: true });
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk menghapus pesan." });
+    const deleted = await db.deleteMessageForUser(id, userId);
+    if (!deleted) return res.status(404).json({ error: "Pesan tidak ditemukan" });
+    return res.json({ ok: true });
   });
 
   // Community
@@ -418,6 +430,14 @@ function createApiRouter() {
     res.json(deposits);
   });
 
+  api.delete("/admin/deposits/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const deleted = await db.deleteAdminDeposit(id, adminEmail);
+    if (!deleted) return res.status(404).json({ error: "Permintaan deposit tidak ditemukan." });
+    return res.json({ ok: true });
+  });
+
   api.patch("/admin/deposits/:id", requireAdmin, async (req: Request, res: Response) => {
     const id = String(req.params["id"] ?? "");
     const body = req.body as { decision?: "approve" | "reject"; note?: string };
@@ -437,6 +457,14 @@ function createApiRouter() {
   api.get("/admin/withdrawals", requireAdmin, async (_req: Request, res: Response) => {
     const withdrawals = await db.getAdminWithdrawals();
     res.json(withdrawals);
+  });
+
+  api.delete("/admin/withdrawals/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const deleted = await db.deleteAdminWithdrawal(id, adminEmail);
+    if (!deleted) return res.status(404).json({ error: "Permintaan withdraw tidak ditemukan." });
+    return res.json({ ok: true });
   });
 
   api.patch("/admin/withdrawals/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -547,6 +575,66 @@ function createApiRouter() {
   api.get("/admin/users", requireAdmin, async (_req: Request, res: Response) => {
     const users = await db.getAdminUsers();
     res.json(users);
+  });
+
+  api.get("/admin/messages", requireAdmin, async (_req: Request, res: Response) => {
+    const messages = await db.getAdminMessages();
+    res.json(messages);
+  });
+
+  api.post("/admin/messages", requireAdmin, async (req: Request, res: Response) => {
+    const body = req.body as {
+      recipientUserId?: unknown;
+      subject?: unknown;
+      body?: unknown;
+      category?: unknown;
+    };
+    const subject = typeof body.subject === "string" ? body.subject.trim() : "";
+    const messageBody = typeof body.body === "string" ? body.body.trim() : "";
+    const category = body.category;
+    const validCategories: InboxMessage["category"][] = [
+      "Peringatan Pasar",
+      "Sistem & Akun",
+      "Dukungan",
+    ];
+    if (!subject || !messageBody) {
+      return res.status(400).json({ error: "Subjek dan isi surat wajib diisi." });
+    }
+    if (subject.length > 200 || messageBody.length > 10000) {
+      return res.status(400).json({ error: "Subjek atau isi surat melebihi batas panjang." });
+    }
+    if (
+      typeof category !== "string" ||
+      !validCategories.includes(category as InboxMessage["category"])
+    ) {
+      return res.status(400).json({ error: "Kategori surat tidak valid." });
+    }
+    const recipientUserId =
+      body.recipientUserId === "all"
+        ? null
+        : typeof body.recipientUserId === "string" && body.recipientUserId.trim()
+          ? body.recipientUserId.trim()
+          : undefined;
+    if (recipientUserId === undefined) {
+      return res.status(400).json({ error: "Pilih satu pengguna atau semua pengguna." });
+    }
+    const result = await db.sendAdminMessage({
+      recipientUserId,
+      subject,
+      body: messageBody,
+      category: category as InboxMessage["category"],
+      adminEmail: String(res.locals["adminEmail"] ?? "admin"),
+    });
+    if (result.error) return res.status(404).json({ error: result.error });
+    return res.status(201).json(result.messages);
+  });
+
+  api.delete("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const deleted = await db.deleteAdminUser(id, adminEmail);
+    if (!deleted) return res.status(404).json({ error: "Pengguna tidak ditemukan." });
+    return res.json({ ok: true });
   });
 
   api.patch("/admin/users/:id", requireAdmin, async (req: Request, res: Response) => {
@@ -775,6 +863,14 @@ function createApiRouter() {
   api.get("/admin/positions", requireAdmin, async (_req: Request, res: Response) => {
     const enriched = await db.getAdminPositions();
     res.json(enriched);
+  });
+
+  api.delete("/admin/positions/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const deleted = await db.deleteAdminPosition(id, adminEmail);
+    if (!deleted) return res.status(404).json({ error: "Posisi tidak ditemukan." });
+    return res.json({ ok: true });
   });
 
   api.patch("/admin/positions/:id/profit", requireAdmin, async (req: Request, res: Response) => {

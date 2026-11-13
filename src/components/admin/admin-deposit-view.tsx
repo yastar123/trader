@@ -11,6 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { AdminDeleteAction } from "@/components/admin/admin-delete-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import {
   formatIdr,
@@ -41,7 +42,7 @@ type MethodFormState = {
 const EMPTY_METHOD_FORM: MethodFormState = {
   label: "",
   accountInfo: "",
-  accountHolder: "PT IC Trading Nusantara",
+  accountHolder: "wmTrader",
   fee: "Gratis (0%)",
   eta: "5–15 menit setelah verifikasi admin",
   enabled: true,
@@ -289,6 +290,48 @@ export function AdminDepositView() {
     }
   }
 
+  async function handleDeleteDeposit(item: DepositRequestRecord): Promise<boolean> {
+    setBusyId(item.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/deposits/${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+      });
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setFeedback({
+          type: "err",
+          text: payload?.error ?? `Gagal menghapus deposit ${item.id}.`,
+        });
+        return false;
+      }
+
+      setDeposits((current) => current.filter((deposit) => deposit.id !== item.id));
+      if (previewItem?.id === item.id) setPreviewItem(null);
+      setFeedback({
+        type: "ok",
+        text: `Deposit ${item.id} dihapus. Saldo akun tidak berubah.`,
+      });
+      try {
+        await loadDeposits();
+      } catch {
+        setFeedback({
+          type: "err",
+          text: `Deposit ${item.id} sudah dihapus, tetapi daftar gagal dimuat ulang.`,
+        });
+      }
+      return true;
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : `Gagal menghapus deposit ${item.id}.`,
+      });
+      return false;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const pendingCount = useMemo(
     () => deposits.filter((item) => item.status === "Menunggu").length,
     [deposits],
@@ -487,7 +530,7 @@ export function AdminDepositView() {
                 onChange={(e) =>
                   setMethodForm((prev) => ({ ...prev, accountHolder: e.target.value }))
                 }
-                placeholder="PT IC Trading Nusantara"
+                placeholder="wmTrader"
                 className="mt-1 h-9 bg-background text-sm"
               />
             </div>
@@ -819,6 +862,13 @@ export function AdminDepositView() {
                               </p>
                             </div>
                           )}
+                          <div className="mt-2">
+                            <AdminDeleteAction
+                              itemLabel={`deposit ${item.id}`}
+                              disabled={busyId === item.id}
+                              onDelete={() => handleDeleteDeposit(item)}
+                            />
+                          </div>
                         </td>
                       </tr>
                     );

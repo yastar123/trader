@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AdminMarketsView } from "@/components/admin/admin-markets-view";
 
-const pageTitle = "Instrumen & Arah Pasar · IC Admin";
-const pageDescription = "Kelola instrumen coin, emas, oil, forex dan atur arah pergerakan chart.";
+const pageTitle = "Instrumen & Arah Pasar · wmTrader Admin";
+const pageDescription = "Kelola instrumen coin, emas, oil, dan forex di platform wmTrader.";
 
 export const Route = createFileRoute("/admin/markets")({
   head: () => ({

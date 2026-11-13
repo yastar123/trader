@@ -46,12 +46,11 @@ export function TentangView() {
     <div className="space-y-8">
       <section className="border-b border-border pb-6">
         <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
-          Tentang IC Trading
+          Tentang wmTrader
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
-          IC Trading dibangun untuk menjembatani kesenjangan antara trader ritel dan likuiditas
-          institusional — menghadirkan transparansi harga True Raw, eksekusi berkecepatan tinggi,
-          serta perangkat analisis yang terintegrasi dalam satu portal.
+          wmTrader menghadirkan fitur trading, pemantauan pasar, dan perangkat analisis dalam satu
+          portal untuk membantu trader mengelola aktivitas mereka.
         </p>
       </section>
 
@@ -97,8 +96,8 @@ export function TentangView() {
               Finansial Lantai 18, Kawasan Bisnis Pusat
             </p>
             <p>
-              <strong className="text-foreground">Email Resmi Dukungan:</strong>{" "}
-              support@ictrading.id
+              <strong className="text-foreground">Dukungan:</strong> Hubungi tim wmTrader melalui
+              menu Kotak Surat.
             </p>
             <p>
               <strong className="text-foreground">Jam Meja Eksekusi:</strong> Senin 04:00 WIB —

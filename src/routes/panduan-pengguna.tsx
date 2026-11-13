@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PanduanPenggunaView } from "@/components/workspace/panduan-pengguna-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Panduan Pengguna | IC Trading";
-const pageDescription = "Panduan penggunaan platform, daftar periksa pemula, dan tanya jawab.";
+const pageTitle = "Panduan Pengguna | wmTrader";
+const pageDescription = "Panduan platform wmTrader, daftar periksa pemula, dan tanya jawab.";
 
 export const Route = createFileRoute("/panduan-pengguna")({
   head: () => ({

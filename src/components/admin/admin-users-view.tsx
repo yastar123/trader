@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Search } from "lucide-react";
+import { AdminDeleteAction } from "@/components/admin/admin-delete-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import type { AdminUserRecord } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ export function AdminUsersView() {
   const [filter, setFilter] = useState<UserFilter>("Semua");
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -49,9 +50,61 @@ export function AdminUsersView() {
         body: JSON.stringify(patch),
       });
       if (res.ok) {
-        setFeedback(`Data pengguna ${id} diperbarui: ${label}.`);
+        setFeedback({ type: "ok", text: `Data pengguna ${id} diperbarui: ${label}.` });
         await loadUsers();
+      } else {
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+        setFeedback({
+          type: "err",
+          text: payload?.error ?? `Gagal memperbarui data pengguna ${id}.`,
+        });
       }
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : `Gagal memperbarui data pengguna ${id}.`,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDeleteUser(user: AdminUserRecord): Promise<boolean> {
+    setBusyId(user.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+        method: "DELETE",
+      });
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setFeedback({
+          type: "err",
+          text: payload?.error ?? `Gagal menghapus pengguna ${user.id}.`,
+        });
+        return false;
+      }
+
+      setUsers((current) => current.filter((item) => item.id !== user.id));
+      setFeedback({
+        type: "ok",
+        text: `Pengguna ${user.name} dihapus beserta posisi, deposit, dan withdraw terkait.`,
+      });
+      try {
+        await loadUsers();
+      } catch {
+        setFeedback({
+          type: "err",
+          text: `Pengguna ${user.name} sudah dihapus, tetapi daftar gagal dimuat ulang.`,
+        });
+      }
+      return true;
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : `Gagal menghapus pengguna ${user.id}.`,
+      });
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -96,9 +149,14 @@ export function AdminUsersView() {
         {feedback && (
           <div
             role="status"
-            className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-sm text-primary"
+            className={cn(
+              "rounded-lg border px-4 py-3 text-sm",
+              feedback.type === "ok"
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-destructive/40 bg-destructive/10 text-destructive",
+            )}
           >
-            {feedback}
+            {feedback.text}
           </div>
         )}
 
@@ -273,6 +331,12 @@ export function AdminUsersView() {
                           >
                             {user.status === "Aktif" ? "Tangguhkan" : "Aktifkan"}
                           </Button>
+                          <AdminDeleteAction
+                            itemLabel={`pengguna ${user.name}`}
+                            description={`Akun ${user.name} (${user.accountId}) dan seluruh posisi, deposit, serta withdraw terkait akan dihapus permanen. Saldo tidak akan dikembalikan.`}
+                            disabled={busyId === user.id}
+                            onDelete={() => handleDeleteUser(user)}
+                          />
                         </div>
                       </td>
                     </tr>

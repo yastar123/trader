@@ -92,6 +92,7 @@ export type JournalRecord = {
 
 export type InboxMessage = {
   id: string;
+  recipientUserId?: string | null;
   sender: string;
   subject: string;
   preview: string;
@@ -308,12 +309,25 @@ function makeSampleProofSvg(params: {
     <text x="40" y="132" font-family="sans-serif" font-size="12" fill="#94a3b8">Nominal Transfer</text>
     <text x="40" y="164" font-family="monospace" font-size="26" font-weight="bold" fill="#f8fafc">$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })} USD</text>
     <text x="40" y="204" font-family="sans-serif" font-size="12" fill="#94a3b8">Pengirim: <tspan fill="#e2e8f0" font-weight="bold">${params.sender}</tspan></text>
-    <text x="40" y="228" font-family="sans-serif" font-size="12" fill="#94a3b8">Penerima: <tspan fill="#e2e8f0" font-weight="bold">PT IC Trading Nusantara</tspan></text>
+    <text x="40" y="228" font-family="sans-serif" font-size="12" fill="#94a3b8">Penerima: <tspan fill="#e2e8f0" font-weight="bold">wmTrader</tspan></text>
     <text x="40" y="252" font-family="monospace" font-size="12" fill="#94a3b8">No. Ref: <tspan fill="#22c55e">${params.ref}</tspan></text>
     <rect x="372" y="246" width="108" height="28" rx="6" fill="#166534" fill-opacity="0.35" stroke="#22c55e"/>
     <text x="426" y="264" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#4ade80">${params.id}</text>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function createMemoryProfile(): UserProfile {
+  return {
+    name: "Raka Pratama",
+    email: "raka.pratama@ictrading.id",
+    accountId: "IC-884210",
+    accountType: "Raw Spread",
+    currency: "USD",
+    timezone: "Asia/Jakarta (WIB)",
+    leverage: 500,
+    loggedIn: true,
+  };
 }
 
 export const memoryStore = {
@@ -338,7 +352,7 @@ export const memoryStore = {
       id: "bca",
       label: "Transfer Bank BCA",
       accountInfo: "5210-8842-9012",
-      accountHolder: "PT IC Trading Nusantara",
+      accountHolder: "wmTrader",
       fee: "Gratis (0%)",
       eta: "5–15 menit setelah verifikasi admin",
       enabled: true,
@@ -348,7 +362,7 @@ export const memoryStore = {
       id: "mandiri",
       label: "Transfer Bank Mandiri",
       accountInfo: "137-000-9921-440",
-      accountHolder: "PT IC Trading Nusantara",
+      accountHolder: "wmTrader",
       fee: "Gratis (0%)",
       eta: "5–15 menit setelah verifikasi admin",
       enabled: true,
@@ -358,7 +372,7 @@ export const memoryStore = {
       id: "bni",
       label: "Transfer Bank BNI",
       accountInfo: "044-8192-3301",
-      accountHolder: "PT IC Trading Nusantara",
+      accountHolder: "wmTrader",
       fee: "Gratis (0%)",
       eta: "10–20 menit setelah verifikasi admin",
       enabled: true,
@@ -376,16 +390,7 @@ export const memoryStore = {
     },
   ] as DepositMethodRecord[],
 
-  profile: {
-    name: "Raka Pratama",
-    email: "raka.pratama@ictrading.id",
-    accountId: "IC-884210",
-    accountType: "Raw Spread",
-    currency: "USD",
-    timezone: "Asia/Jakarta (WIB)",
-    leverage: 500,
-    loggedIn: true,
-  } satisfies UserProfile,
+  profile: createMemoryProfile(),
 
   markets: [
     makeInstrument({
@@ -1217,7 +1222,7 @@ export const memoryStore = {
   messages: [
     {
       id: "MSG-101",
-      sender: "Meja Likuiditas IC",
+      sender: "Tim Likuiditas wmTrader",
       subject: "Pemberitahuan Jadwal Rilis Inflasi AS & Potensi Pelebaran Spread",
       preview: "Rilis CPI AS dijadwalkan pukul 20:30 WIB. Pastikan level margin Anda memadai.",
       body: "Halo Trader,\n\nSebagai bagian dari manajemen risiko menjelang rilis data Indeks Harga Konsumen (CPI) AS pada pukul 20:30 WIB hari ini, likuiditas antarbank pada pasangan USD dan XAUUSD dapat mengalami volatilitas tinggi sesaat.\n\nPastikan posisi terbuka Anda memiliki Stop Loss yang sesuai serta margin bebas yang memadai untuk mengantisipasi lonjakan harga.",
@@ -1228,7 +1233,7 @@ export const memoryStore = {
     },
     {
       id: "MSG-102",
-      sender: "Kepatuhan & Akun IC",
+      sender: "Tim Kepatuhan & Akun wmTrader",
       subject: "Laporan Ringkasan Eksekusi Mingguan Akun Raw Spread",
       preview: "Rata-rata kecepatan eksekusi akun Anda minggu ini tercatat 34 ms tanpa requotes.",
       body: "Laporan ringkasan eksekusi periode mingguan untuk akun #IC-884210 telah tersedia.\n\nTotal lot ditransaksikan: 4.85 lot\nRata-rata kecepatan eksekusi: 34 milidetik\nSpread rata-rata EURUSD: 0.12 pip\n\nAnda dapat meninjau rincian per transaksi di menu Jurnal Trading.",
@@ -1239,7 +1244,7 @@ export const memoryStore = {
     },
     {
       id: "MSG-103",
-      sender: "Akademi IC Trading",
+      sender: "Akademi wmTrader",
       subject: "Konfirmasi Pendaftaran: Bedah Struktur Pasar Emas (XAUUSD)",
       preview:
         "Kursi Anda untuk sesi webinar besok malam telah tercatat. Tautan ruang siaran aktif 15 menit sebelum mulai.",
@@ -1251,7 +1256,7 @@ export const memoryStore = {
     },
     {
       id: "MSG-104",
-      sender: "Infrastruktur Server IC",
+      sender: "Infrastruktur Server wmTrader",
       subject: "Pemeliharaan Terjadwal Server NY4 Akhir Pekan",
       preview: "Pemeliharaan rutin dilakukan Sabtu pukul 15:00 - 17:00 WIB saat pasar tutup.",
       body: "Untuk menjaga latensi rendah dan kestabilan koneksi cTrader serta MetaTrader, kami menjadwalkan pemeliharaan rutin pada akhir pekan saat pasar tutup.\n\nTidak ada tindakan yang diperlukan dari pihak Anda.",
@@ -1262,7 +1267,7 @@ export const memoryStore = {
     },
     {
       id: "MSG-105",
-      sender: "Manajemen Risiko IC",
+      sender: "Manajemen Risiko wmTrader",
       subject: "Pembaruan Rasio Leverage Dinamis & Margin Instrumen Kripto",
       preview: "Kini Anda dapat menyesuaikan rasio leverage hingga 1:1000 melalui menu Trade.",
       body: "Pengaturan rasio leverage akun kini tersedia langsung pada tiket order terminal Trade serta halaman Pengaturan.\n\nSesuaikan leverage dengan ukuran lot agar level margin tetap aman di atas 100%.",
@@ -1273,7 +1278,7 @@ export const memoryStore = {
     },
     {
       id: "MSG-106",
-      sender: "Meja Likuiditas IC",
+      sender: "Tim Likuiditas wmTrader",
       subject: "Ringkasan Volatilitas Minyak Mentah WTI (USOIL)",
       preview: "Laporan stok mingguan EIA memicu pergerakan 120 pip pada sesi New York.",
       body: "Instrumen energi USOIL mencatatkan peningkatan likuiditas selama sesi New York. Pastikan batas Stop Loss disesuaikan dengan rentang pergerakan harian rata-rata.",

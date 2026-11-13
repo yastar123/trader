@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { KotakSuratView } from "@/components/workspace/kotak-surat-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Kotak Surat | IC Trading";
-const pageDescription = "Pesan masuk, peringatan pasar, dan korespondensi dukungan IC Trading.";
+const pageTitle = "Kotak Surat | wmTrader";
+const pageDescription = "Pesan masuk, peringatan pasar, dan korespondensi dukungan wmTrader.";
 
 export const Route = createFileRoute("/kotak-surat")({
   head: () => ({

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AdminWithdrawView } from "@/components/admin/admin-withdraw-view";
 
-const pageTitle = "Verifikasi Withdraw · IC Admin";
-const pageDescription = "Antrean verifikasi manual penarikan dana trader IC Trading.";
+const pageTitle = "Verifikasi Withdraw · wmTrader Admin";
+const pageDescription = "Antrean verifikasi manual penarikan dana trader wmTrader.";
 
 export const Route = createFileRoute("/admin/withdraw")({
   head: () => ({

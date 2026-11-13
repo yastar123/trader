@@ -23,7 +23,7 @@ type MailItem = {
 const initialMessages: MailItem[] = [
   {
     id: "MSG-101",
-    sender: "Meja Likuiditas IC",
+    sender: "Tim Likuiditas wmTrader",
     subject: "Pemberitahuan Jadwal Rilis Inflasi AS & Potensi Pelebaran Spread",
     preview: "Rilis CPI AS dijadwalkan pukul 20:30 WIB. Pastikan level margin Anda memadai.",
     body: "Halo Trader,\n\nSebagai bagian dari manajemen risiko menjelang rilis data Indeks Harga Konsumen (CPI) AS pada pukul 20:30 WIB hari ini, likuiditas antarbank pada pasangan USD dan XAUUSD dapat mengalami volatilitas tinggi sesaat.\n\nPastikan posisi terbuka Anda memiliki Stop Loss yang sesuai serta margin bebas yang memadai untuk mengantisipasi lonjakan harga.",
@@ -34,7 +34,7 @@ const initialMessages: MailItem[] = [
   },
   {
     id: "MSG-102",
-    sender: "Kepatuhan & Akun IC",
+    sender: "Tim Kepatuhan & Akun wmTrader",
     subject: "Laporan Ringkasan Eksekusi Mingguan Akun Raw Spread",
     preview: "Rata-rata kecepatan eksekusi akun Anda minggu ini tercatat 34 ms tanpa requotes.",
     body: "Laporan ringkasan eksekusi periode mingguan untuk akun #IC-884210 telah tersedia.\n\nTotal lot ditransaksikan: 4.85 lot\nRata-rata kecepatan eksekusi: 34 milidetik\nSpread rata-rata EURUSD: 0.12 pip\n\nAnda dapat meninjau rincian per transaksi di menu Jurnal Trading.",
@@ -45,7 +45,7 @@ const initialMessages: MailItem[] = [
   },
   {
     id: "MSG-103",
-    sender: "Akademi IC Trading",
+    sender: "Akademi wmTrader",
     subject: "Konfirmasi Pendaftaran: Bedah Struktur Pasar Emas (XAUUSD)",
     preview:
       "Kursi Anda untuk sesi webinar besok malam telah tercatat. Tautan ruang siaran aktif 15 menit sebelum mulai.",
@@ -57,7 +57,7 @@ const initialMessages: MailItem[] = [
   },
   {
     id: "MSG-104",
-    sender: "Infrastruktur Server IC",
+    sender: "Infrastruktur Server wmTrader",
     subject: "Pemeliharaan Terjadwal Server NY4 Akhir Pekan",
     preview: "Pemeliharaan rutin dilakukan Sabtu pukul 15:00 - 17:00 WIB saat pasar tutup.",
     body: "Untuk menjaga latensi rendah dan kestabilan koneksi cTrader serta MetaTrader, kami menjadwalkan pemeliharaan rutin pada akhir pekan saat pasar tutup.\n\nTidak ada tindakan yang diperlukan dari pihak Anda.",
@@ -175,7 +175,7 @@ export function KotakSuratView() {
 
     const created: MailItem = {
       id: `MSG-${Math.floor(200 + Math.random() * 800)}`,
-      sender: "Anda → Tim Dukungan IC",
+      sender: "Anda → Tim Dukungan wmTrader",
       subject: newSubject.trim(),
       preview: newBody.trim().slice(0, 90),
       body: newBody.trim(),

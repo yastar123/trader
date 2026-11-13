@@ -349,6 +349,32 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
       ],
     );
   }
+
+  await client.query(
+    `UPDATE deposit_methods
+     SET account_holder = 'wmTrader'
+     WHERE account_holder = 'PT IC Trading Nusantara'`,
+  );
+  await client.query(
+    `UPDATE inbox_messages
+     SET sender = CASE sender
+       WHEN 'Meja Likuiditas IC' THEN 'Tim Likuiditas wmTrader'
+       WHEN 'Kepatuhan & Akun IC' THEN 'Tim Kepatuhan & Akun wmTrader'
+       WHEN 'Akademi IC Trading' THEN 'Akademi wmTrader'
+       WHEN 'Infrastruktur Server IC' THEN 'Infrastruktur Server wmTrader'
+       WHEN 'Manajemen Risiko IC' THEN 'Manajemen Risiko wmTrader'
+       WHEN 'Anda → Tim Dukungan IC' THEN 'Anda → Tim Dukungan wmTrader'
+       ELSE sender
+     END
+     WHERE sender IN (
+       'Meja Likuiditas IC',
+       'Kepatuhan & Akun IC',
+       'Akademi IC Trading',
+       'Infrastruktur Server IC',
+       'Manajemen Risiko IC',
+       'Anda → Tim Dukungan IC'
+     )`,
+  );
 }
 
 function mapMarketRow(row: Record<string, unknown>): MarketInstrumentRecord {
@@ -515,6 +541,7 @@ function mapJournalRow(row: Record<string, unknown>): JournalRecord {
 function mapMessageRow(row: Record<string, unknown>): InboxMessage {
   return {
     id: String(row.id),
+    recipientUserId: row.recipient_user_id == null ? null : String(row.recipient_user_id),
     sender: String(row.sender),
     subject: String(row.subject),
     preview: String(row.preview),
@@ -1993,16 +2020,52 @@ export const db = {
     await pool.query(`DELETE FROM journal_entries WHERE id = $1`, [id]);
   },
 
+  async getCurrentTraderId(): Promise<string | null> {
+    if (!pgReady || !pool) {
+      if (!memoryStore.profile.loggedIn) return null;
+      return (
+        memoryStore.users.find((user) => user.accountId === memoryStore.profile.accountId)?.id ??
+        null
+      );
+    }
+    const { userRow, loggedIn } = await getActiveTraderRow(pool);
+    return loggedIn && userRow ? String(userRow.id) : null;
+  },
+
   async getMessages(): Promise<InboxMessage[]> {
     if (!pgReady || !pool) return memoryStore.messages;
     const res = await pool.query(`SELECT * FROM inbox_messages ORDER BY created_at DESC`);
     return res.rows.map(mapMessageRow);
   },
 
-  async createMessage(body: { subject?: string; body?: string }): Promise<InboxMessage> {
+  async getMessagesForUser(userId: string): Promise<InboxMessage[]> {
+    if (!pgReady || !pool) {
+      return memoryStore.messages.filter(
+        (message) => message.recipientUserId == null || message.recipientUserId === userId,
+      );
+    }
+    const res = await pool.query(
+      `SELECT * FROM inbox_messages
+       WHERE recipient_user_id IS NULL OR recipient_user_id = $1
+       ORDER BY created_at DESC`,
+      [userId],
+    );
+    return res.rows.map(mapMessageRow);
+  },
+
+  async getAdminMessages(): Promise<InboxMessage[]> {
+    return this.getMessages();
+  },
+
+  async createMessage(
+    body: { subject?: string; body?: string },
+    recipientUserId?: string,
+  ): Promise<InboxMessage> {
+    const targetUserId = recipientUserId ?? (await this.getCurrentTraderId());
     const created: InboxMessage = {
-      id: `MSG-${Math.floor(200 + Math.random() * 800)}`,
-      sender: "Anda → Tim Dukungan IC",
+      id: `MSG-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+      recipientUserId: targetUserId,
+      sender: "Anda → Tim Dukungan wmTrader",
       subject: body.subject?.trim() || "Pertanyaan Akun",
       preview: (body.body?.trim() || "").slice(0, 90),
       body: body.body?.trim() || "",
@@ -2017,11 +2080,12 @@ export const db = {
     }
     await pool.query(
       `INSERT INTO inbox_messages (
-         id, sender, subject, preview, body, category, timestamp_label, unread, archived
+         id, recipient_user_id, sender, subject, preview, body, category, timestamp_label, unread, archived
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         created.id,
+        created.recipientUserId,
         created.sender,
         created.subject,
         created.preview,
@@ -2033,6 +2097,155 @@ export const db = {
       ],
     );
     return created;
+  },
+
+  async updateMessageForUser(
+    id: string,
+    userId: string,
+    patch: Partial<Pick<InboxMessage, "unread" | "archived">>,
+  ): Promise<InboxMessage | null> {
+    if (!pgReady || !pool) {
+      const existing = memoryStore.messages.find(
+        (message) =>
+          message.id === id &&
+          (message.recipientUserId == null || message.recipientUserId === userId),
+      );
+      if (!existing) return null;
+      const updated = { ...existing, ...patch };
+      memoryStore.messages = memoryStore.messages.map((message) =>
+        message.id === id ? updated : message,
+      );
+      return updated;
+    }
+    const current = await pool.query(
+      `SELECT * FROM inbox_messages
+       WHERE id = $1 AND (recipient_user_id IS NULL OR recipient_user_id = $2)`,
+      [id, userId],
+    );
+    if (current.rows.length === 0) return null;
+    const existing = mapMessageRow(current.rows[0] as Record<string, unknown>);
+    const result = await pool.query(
+      `UPDATE inbox_messages
+       SET unread = $1, archived = $2
+       WHERE id = $3 AND (recipient_user_id IS NULL OR recipient_user_id = $4)
+       RETURNING *`,
+      [
+        typeof patch.unread === "boolean" ? patch.unread : existing.unread,
+        typeof patch.archived === "boolean" ? patch.archived : existing.archived,
+        id,
+        userId,
+      ],
+    );
+    return result.rows[0] ? mapMessageRow(result.rows[0] as Record<string, unknown>) : null;
+  },
+
+  async deleteMessageForUser(id: string, userId: string): Promise<boolean> {
+    if (!pgReady || !pool) {
+      const exists = memoryStore.messages.some(
+        (message) =>
+          message.id === id &&
+          (message.recipientUserId == null || message.recipientUserId === userId),
+      );
+      if (!exists) return false;
+      memoryStore.messages = memoryStore.messages.filter((message) => message.id !== id);
+      return true;
+    }
+    const result = await pool.query(
+      `DELETE FROM inbox_messages
+       WHERE id = $1 AND (recipient_user_id IS NULL OR recipient_user_id = $2)`,
+      [id, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+
+  async sendAdminMessage(params: {
+    recipientUserId: string | null;
+    subject: string;
+    body: string;
+    category: InboxMessage["category"];
+    adminEmail: string;
+  }): Promise<{ error?: string; messages?: InboxMessage[] }> {
+    const users = await this.getAdminUsers();
+    const recipients =
+      params.recipientUserId === null
+        ? users
+        : users.filter((user) => user.id === params.recipientUserId);
+    if (recipients.length === 0) {
+      return {
+        error:
+          params.recipientUserId === null
+            ? "Tidak ada pengguna untuk menerima surat."
+            : "Pengguna yang dipilih tidak ditemukan.",
+      };
+    }
+
+    const messages = recipients.map((user, index): InboxMessage => ({
+      id: `MSG-${Date.now()}-${index}-${crypto.randomBytes(4).toString("hex")}`,
+      recipientUserId: user.id,
+      sender: "Admin wmTrader",
+      subject: params.subject.trim(),
+      preview: params.body.trim().slice(0, 90),
+      body: params.body.trim(),
+      category: params.category,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      unread: true,
+      archived: false,
+    }));
+    const log: AuditLogRecord = {
+      id: `AUD-${crypto.randomBytes(5).toString("hex")}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: params.adminEmail,
+      action: "Kirim Surat Admin",
+      target:
+        params.recipientUserId === null
+          ? "Semua Pengguna"
+          : `${recipients[0]!.name} (${recipients[0]!.accountId})`,
+      detail: `Subjek: ${params.subject.trim()} · Terkirim kepada ${messages.length} pengguna.`,
+    };
+
+    if (!pgReady || !pool) {
+      memoryStore.messages = [...messages, ...memoryStore.messages];
+      memoryStore.auditLogs = [log, ...memoryStore.auditLogs];
+      return { messages };
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const message of messages) {
+        await client.query(
+          `INSERT INTO inbox_messages (
+             id, recipient_user_id, sender, subject, preview, body, category,
+             timestamp_label, unread, archived
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            message.id,
+            message.recipientUserId,
+            message.sender,
+            message.subject,
+            message.preview,
+            message.body,
+            message.category,
+            message.timestamp,
+            message.unread,
+            message.archived,
+          ],
+        );
+      }
+      await client.query(
+        `INSERT INTO audit_logs (id, timestamp_label, actor, action, target, detail)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [log.id, log.timestamp, log.actor, log.action, log.target, log.detail],
+      );
+      await client.query("COMMIT");
+      return { messages };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   },
 
   async updateMessage(
@@ -2290,6 +2503,32 @@ export const db = {
     return res.rows.map(mapDepositRow);
   },
 
+  async deleteAdminDeposit(id: string, adminEmail: string): Promise<boolean> {
+    let target: DepositRequestRecord;
+    if (!pgReady || !pool) {
+      const found = memoryStore.deposits.find((deposit) => deposit.id === id);
+      if (!found) return false;
+      target = found;
+      memoryStore.deposits = memoryStore.deposits.filter((deposit) => deposit.id !== id);
+    } else {
+      const deleted = await pool.query(`DELETE FROM deposit_requests WHERE id = $1 RETURNING *`, [
+        id,
+      ]);
+      if (deleted.rows.length === 0) return false;
+      target = mapDepositRow(deleted.rows[0] as Record<string, unknown>);
+    }
+
+    await this.appendAuditLog({
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Hapus Deposit",
+      target: `${target.id} (${target.accountId})`,
+      detail: `Permintaan deposit $${target.amount.toFixed(2)} dihapus; saldo akun tidak berubah.`,
+    });
+    return true;
+  },
+
   async reviewDeposit(params: {
     id: string;
     decision: "approve" | "reject";
@@ -2399,6 +2638,34 @@ export const db = {
     if (!pgReady || !pool) return memoryStore.withdrawals;
     const res = await pool.query(`SELECT * FROM withdraw_requests ORDER BY created_at DESC`);
     return res.rows.map(mapWithdrawRow);
+  },
+
+  async deleteAdminWithdrawal(id: string, adminEmail: string): Promise<boolean> {
+    let target: WithdrawRequestRecord;
+    if (!pgReady || !pool) {
+      const found = memoryStore.withdrawals.find((withdrawal) => withdrawal.id === id);
+      if (!found) return false;
+      target = found;
+      memoryStore.withdrawals = memoryStore.withdrawals.filter(
+        (withdrawal) => withdrawal.id !== id,
+      );
+    } else {
+      const deleted = await pool.query(`DELETE FROM withdraw_requests WHERE id = $1 RETURNING *`, [
+        id,
+      ]);
+      if (deleted.rows.length === 0) return false;
+      target = mapWithdrawRow(deleted.rows[0] as Record<string, unknown>);
+    }
+
+    await this.appendAuditLog({
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Hapus Withdraw",
+      target: `${target.id} (${target.accountId})`,
+      detail: `Permintaan withdraw $${target.amount.toFixed(2)} dihapus; saldo akun tidak berubah.`,
+    });
+    return true;
   },
 
   async reviewWithdraw(params: {
@@ -2593,6 +2860,51 @@ export const db = {
     return mapUserRow(upd.rows[0] as Record<string, unknown>);
   },
 
+  async deleteAdminUser(id: string, adminEmail: string): Promise<boolean> {
+    let target: AdminUserRecord;
+    if (!pgReady || !pool) {
+      const found = memoryStore.users.find((user) => user.id === id);
+      if (!found) return false;
+      target = found;
+      memoryStore.users = memoryStore.users.filter((user) => user.id !== id);
+      memoryStore.positions = memoryStore.positions.filter(
+        (position) => position.userId !== id && position.accountId !== target.accountId,
+      );
+      memoryStore.deposits = memoryStore.deposits.filter(
+        (deposit) => deposit.userId !== id && deposit.accountId !== target.accountId,
+      );
+      memoryStore.withdrawals = memoryStore.withdrawals.filter(
+        (withdrawal) => withdrawal.userId !== id && withdrawal.accountId !== target.accountId,
+      );
+      memoryStore.messages = memoryStore.messages.filter(
+        (message) => message.recipientUserId !== id,
+      );
+      if (memoryStore.profile.accountId === target.accountId) {
+        memoryStore.profile.loggedIn = false;
+      }
+    } else {
+      const deleted = await pool.query(`DELETE FROM users WHERE id = $1 RETURNING *`, [id]);
+      if (deleted.rows.length === 0) return false;
+      target = mapUserRow(deleted.rows[0] as Record<string, unknown>);
+      await pool.query(
+        `UPDATE app_sessions
+         SET account_id = NULL, email = NULL, logged_in = FALSE, updated_at = NOW()
+         WHERE kind = 'trader' AND account_id = $1`,
+        [target.accountId],
+      );
+    }
+
+    await this.appendAuditLog({
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Hapus Pengguna",
+      target: `${target.name} (${target.accountId})`,
+      detail: `Akun pengguna dan seluruh posisi, deposit, serta withdraw terkait dihapus.`,
+    });
+    return true;
+  },
+
   async getAdminAudit(): Promise<AuditLogRecord[]> {
     if (!pgReady || !pool) return memoryStore.auditLogs;
     const res = await pool.query(`SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100`);
@@ -2751,6 +3063,30 @@ export const db = {
         livePnl,
       };
     });
+  },
+
+  async deleteAdminPosition(id: string, adminEmail: string): Promise<boolean> {
+    let target: TradePosition;
+    if (!pgReady || !pool) {
+      const found = memoryStore.positions.find((position) => position.id === id);
+      if (!found) return false;
+      target = found;
+      memoryStore.positions = memoryStore.positions.filter((position) => position.id !== id);
+    } else {
+      const deleted = await pool.query(`DELETE FROM positions WHERE id = $1 RETURNING *`, [id]);
+      if (deleted.rows.length === 0) return false;
+      target = mapPositionRow(deleted.rows[0] as Record<string, unknown>);
+    }
+
+    await this.appendAuditLog({
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Hapus Posisi",
+      target: `${target.id} (${target.accountId})`,
+      detail: `Posisi ${target.symbol} ${target.side} dihapus; riwayat saldo tidak berubah.`,
+    });
+    return true;
   },
 
   async setPositionAdminProfit(

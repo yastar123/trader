@@ -195,7 +195,7 @@ export function KomunitasView() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Berbagi analisis teknikal, ide setup pasar, dan diskusi manajemen risiko bersama sesama
-          trader IC
+          trader wmTrader
         </p>
       </div>
 

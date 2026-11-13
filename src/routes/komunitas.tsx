@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { KomunitasView } from "@/components/workspace/komunitas-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Komunitas | IC Trading";
-const pageDescription = "Forum diskusi, ide analisis teknikal, dan sentimen trader IC Trading.";
+const pageTitle = "Komunitas | wmTrader";
+const pageDescription = "Forum diskusi, ide analisis teknikal, dan sentimen trader wmTrader.";
 
 export const Route = createFileRoute("/komunitas")({
   head: () => ({

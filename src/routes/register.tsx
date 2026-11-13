@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AccountPage } from "@/components/auth/account-page";
 
-const pageTitle = "Daftar akun IC Trading";
-const pageDescription = "Halaman pendaftaran akun IC Trading.";
+const pageTitle = "Daftar akun wmTrader";
+const pageDescription = "Halaman pendaftaran akun wmTrader.";
 
 export const Route = createFileRoute("/register")({
   head: () => ({

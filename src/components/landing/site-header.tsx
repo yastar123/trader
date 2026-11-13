@@ -9,7 +9,7 @@ const utilityLinks = [
 ];
 
 const utilityRight = [
-  { label: "IC Social", href: "#" },
+  { label: "wmTrader Social", href: "#" },
   { label: "WebTrader", href: "#" },
   { label: "Mulai Trading", href: "/register" },
   { label: "Coba Akun Demo Gratis", href: "/register" },
@@ -98,9 +98,11 @@ export function SiteHeader() {
             </svg>
           </span>
           <span className="leading-tight">
-            <span className="block font-display text-2xl font-extrabold tracking-tight">IC</span>
+            <span className="block font-display text-2xl font-extrabold tracking-tight">
+              wmTrader
+            </span>
             <span className="block text-[10px] font-medium tracking-wide text-muted-foreground">
-              Trading Edge Anda
+              Platform Trading
             </span>
           </span>
         </Link>

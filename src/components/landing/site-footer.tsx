@@ -63,11 +63,10 @@ export function SiteFooter() {
                   />
                 </svg>
               </span>
-              <span className="font-display text-2xl font-extrabold tracking-tight">IC</span>
+              <span className="font-display text-2xl font-extrabold tracking-tight">wmTrader</span>
             </div>
             <p className="mt-4 max-w-xs text-sm text-muted-foreground">
-              Trading Edge Anda — broker online untuk trading Forex & CFD dengan spread mulai 0.0
-              pip*.
+              wmTrader — platform online untuk trading Forex & CFD dengan spread mulai 0.0 pip*.
             </p>
             <div className="mt-5 flex gap-2.5">
               {socials.map((s) => (
@@ -113,8 +112,8 @@ export function SiteFooter() {
             normal dan dapat berubah sewaktu-waktu.
           </p>
           <p className="mt-4 text-xs text-muted-foreground">
-            © {new Date().getFullYear()} IC. Halaman ini adalah tiruan desain untuk keperluan
-            pengembangan dan tidak berafiliasi dengan IC Markets Global.
+            © {new Date().getFullYear()} wmTrader. Platform ini merupakan demonstrasi untuk
+            keperluan pengembangan dan bukan merupakan ajakan untuk bertransaksi.
           </p>
         </div>
       </div>

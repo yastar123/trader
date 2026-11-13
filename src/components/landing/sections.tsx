@@ -63,9 +63,9 @@ export function RawSection() {
             Keunggulan True RAW
           </h2>
           <p className="mt-5 text-muted-foreground sm:text-lg">
-            Raw adalah perbedaan yang Anda nantikan. Trading di lingkungan IC dengan spread mulai
-            0.0 pips*, tanpa requotes, tanpa manipulasi harga, dan tanpa batasan. IC adalah penyedia
-            CFD online pilihan bagi trader bervolume tinggi, scalper, dan robot.
+            Raw adalah perbedaan yang Anda nantikan. Trading bersama wmTrader dengan spread mulai
+            0.0 pips*, tanpa requotes, tanpa manipulasi harga, dan tanpa batasan. Platform wmTrader
+            dirancang bagi trader bervolume tinggi, scalper, dan strategi otomatis.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a
@@ -330,7 +330,7 @@ export function GoldSection() {
           </div>
           <div>
             <h2 className="text-hero-display text-3xl sm:text-4xl lg:text-5xl">
-              Trading Emas dengan IC — Kondisi yang Membentuk Standar Industri
+              Trading Emas dengan wmTrader — Kondisi untuk Setiap Strategi
             </h2>
             <ul className="mt-6 space-y-3">
               {["Likuiditas melalui 25+ penyedia tepercaya", "Eksekusi dalam <40 md"].map((p) => (
@@ -386,10 +386,8 @@ export function AutomationSection() {
               Berikan Keunggulan pada Sistem Trading Otomatis Anda
             </h2>
             <p className="mt-5 text-muted-foreground sm:text-lg">
-              IC merupakan salah satu pilihan utama bagi trader otomatis. Mesin pencocokan order
-              kami yang berlokasi di pusat data Equinix NY4, New York, memproses jutaan transaksi
-              setiap hari — dengan lebih dari dua pertiga total transaksi berasal dari sistem
-              trading otomatis.
+              wmTrader menyediakan fitur platform untuk membantu trader menjalankan dan memantau
+              strategi otomatis sesuai kebutuhan mereka.
             </p>
           </div>
         </Reveal>

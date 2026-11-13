@@ -32,7 +32,7 @@ export function AccountPage({ mode }: AccountPageProps) {
     <main className="grid min-h-dvh bg-background lg:grid-cols-[0.95fr_1.05fr]">
       <section
         className="relative hidden min-h-dvh overflow-hidden bg-card lg:block"
-        aria-label="IC Trading"
+        aria-label="wmTrader"
       >
         <img
           src={heroRace}
@@ -43,11 +43,11 @@ export function AccountPage({ mode }: AccountPageProps) {
         <div className="relative flex min-h-dvh flex-col justify-between p-10 xl:p-16">
           <Link to="/" className="inline-flex w-fit items-center gap-3 text-foreground">
             <span className="flex size-10 items-center justify-center rounded-md bg-primary text-sm font-extrabold text-primary-foreground">
-              IC
+              wmT
             </span>
             <span>
-              <span className="block font-display text-xl font-extrabold">IC Trading</span>
-              <span className="block text-xs text-muted-foreground">Trading Edge Anda</span>
+              <span className="block font-display text-xl font-extrabold">wmTrader</span>
+              <span className="block text-xs text-muted-foreground">Platform Trading</span>
             </span>
           </Link>
           <div className="max-w-lg pb-4">
@@ -58,10 +58,10 @@ export function AccountPage({ mode }: AccountPageProps) {
               Ambil langkah berikutnya dengan percaya diri.
             </h1>
             <p className="mt-5 max-w-md text-base leading-7 text-foreground/75">
-              Akses platform trading dan jelajahi peluang pasar bersama IC.
+              Akses platform trading dan jelajahi peluang pasar bersama wmTrader.
             </p>
           </div>
-          <p className="text-xs text-foreground/65">© IC Trading</p>
+          <p className="text-xs text-foreground/65">© wmTrader</p>
         </div>
       </section>
 
@@ -76,7 +76,7 @@ export function AccountPage({ mode }: AccountPageProps) {
           </Link>
 
           <div className="mb-8">
-            <p className="text-sm font-semibold text-primary">IC Trading</p>
+            <p className="text-sm font-semibold text-primary">wmTrader</p>
             <h2 className="mt-3 font-display text-3xl font-bold">
               {isRegister ? "Buat akun Anda" : "Selamat datang kembali"}
             </h2>

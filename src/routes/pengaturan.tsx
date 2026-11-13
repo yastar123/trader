@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PengaturanView } from "@/components/workspace/pengaturan-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Pengaturan | IC Trading";
-const pageDescription = "Pengaturan profil, preferensi eksekusi trading, keamanan, dan notifikasi.";
+const pageTitle = "Pengaturan | wmTrader";
+const pageDescription = "Pengaturan profil, eksekusi trading, keamanan, dan notifikasi wmTrader.";
 
 export const Route = createFileRoute("/pengaturan")({
   head: () => ({

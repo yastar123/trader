@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -30,6 +31,7 @@ type AdminNavItem = {
     | "/admin/deposit"
     | "/admin/withdraw"
     | "/admin/users"
+    | "/admin/mail"
     | "/admin/audit";
   icon: typeof LayoutDashboard;
   badge?: number;
@@ -113,6 +115,7 @@ export function AdminShell({
       badge: pendingWithdrawalsCount,
     },
     { label: "Pengguna", to: "/admin/users", icon: Users },
+    { label: "Kotak Surat", to: "/admin/mail", icon: Mail },
     { label: "Log Audit", to: "/admin/audit", icon: History },
   ];
 
@@ -147,7 +150,7 @@ export function AdminShell({
           >
             <Link
               to="/admin"
-              title="IC Admin"
+              title="wmTrader Admin"
               className="flex items-center gap-3 whitespace-nowrap"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
@@ -156,7 +159,7 @@ export function AdminShell({
               {!isCollapsed && (
                 <span>
                   <span className="block font-display text-lg font-extrabold tracking-tight text-foreground">
-                    IC Admin
+                    wmTrader Admin
                   </span>
                   <span className="block text-[11px] font-medium text-muted-foreground">
                     Kontrol & Verifikasi
@@ -335,7 +338,7 @@ export function AdminShell({
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="hidden sm:inline">IC Admin</span>
+                <span className="hidden sm:inline">wmTrader Admin</span>
                 <span className="hidden sm:inline" aria-hidden="true">
                   /
                 </span>

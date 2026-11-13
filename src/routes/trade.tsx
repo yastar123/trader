@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { TradeView } from "@/components/workspace/trade-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Trade | IC Trading";
-const pageDescription = "Terminal trading interaktif untuk eksekusi order dan pemantauan posisi.";
+const pageTitle = "Trade | wmTrader";
+const pageDescription =
+  "Terminal trading interaktif wmTrader untuk eksekusi order dan pantauan posisi.";
 
 export const Route = createFileRoute("/trade")({
   head: () => ({

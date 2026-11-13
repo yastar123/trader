@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { BerandaView } from "@/components/workspace/beranda-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Beranda | IC Trading";
+const pageTitle = "Beranda | wmTrader";
 const pageDescription =
-  "Ringkasan saldo, ekuitas, pantauan pasar, dan posisi terbuka akun IC Trading.";
+  "Ringkasan saldo, ekuitas, pantauan pasar, dan posisi terbuka akun wmTrader.";
 
 export const Route = createFileRoute("/beranda")({
   head: () => ({

@@ -27,6 +27,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminDepositRouteImport } from './routes/admin/deposit'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
+import { Route as AdminMailRouteImport } from './routes/admin/mail'
 import { Route as AdminMarketsRouteImport } from './routes/admin/markets'
 import { Route as AdminPositionsRouteImport } from './routes/admin/positions'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
@@ -122,6 +123,11 @@ const AdminLoginRoute = AdminLoginRouteImport.update({
   path: '/admin/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminMailRoute = AdminMailRouteImport.update({
+  id: '/admin/mail',
+  path: '/admin/mail',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminMarketsRoute = AdminMarketsRouteImport.update({
   id: '/admin/markets',
   path: '/admin/markets',
@@ -161,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/deposit': typeof AdminDepositRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/mail': typeof AdminMailRoute
   '/admin/markets': typeof AdminMarketsRoute
   '/admin/positions': typeof AdminPositionsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByTo {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/deposit': typeof AdminDepositRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/mail': typeof AdminMailRoute
   '/admin/markets': typeof AdminMarketsRoute
   '/admin/positions': typeof AdminPositionsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -210,6 +218,7 @@ export interface FileRoutesById {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/deposit': typeof AdminDepositRoute
   '/admin/login': typeof AdminLoginRoute
+  '/admin/mail': typeof AdminMailRoute
   '/admin/markets': typeof AdminMarketsRoute
   '/admin/positions': typeof AdminPositionsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -236,6 +245,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/deposit'
     | '/admin/login'
+    | '/admin/mail'
     | '/admin/markets'
     | '/admin/positions'
     | '/admin/users'
@@ -260,6 +270,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/deposit'
     | '/admin/login'
+    | '/admin/mail'
     | '/admin/markets'
     | '/admin/positions'
     | '/admin/users'
@@ -284,6 +295,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/deposit'
     | '/admin/login'
+    | '/admin/mail'
     | '/admin/markets'
     | '/admin/positions'
     | '/admin/users'
@@ -309,6 +321,7 @@ export interface RootRouteChildren {
   AdminAuditRoute: typeof AdminAuditRoute
   AdminDepositRoute: typeof AdminDepositRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminMailRoute: typeof AdminMailRoute
   AdminMarketsRoute: typeof AdminMarketsRoute
   AdminPositionsRoute: typeof AdminPositionsRoute
   AdminUsersRoute: typeof AdminUsersRoute
@@ -444,6 +457,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/mail': {
+      id: '/admin/mail'
+      path: '/admin/mail'
+      fullPath: '/admin/mail'
+      preLoaderRoute: typeof AdminMailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/markets': {
       id: '/admin/markets'
       path: '/admin/markets'
@@ -493,6 +513,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminAuditRoute: AdminAuditRoute,
   AdminDepositRoute: AdminDepositRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AdminMailRoute: AdminMailRoute,
   AdminMarketsRoute: AdminMarketsRoute,
   AdminPositionsRoute: AdminPositionsRoute,
   AdminUsersRoute: AdminUsersRoute,

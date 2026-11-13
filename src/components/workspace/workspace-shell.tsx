@@ -125,7 +125,7 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
           >
             <Link
               to="/beranda"
-              title="IC Trading"
+              title="wmTrader"
               className="flex items-center gap-3 whitespace-nowrap"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary">
@@ -159,7 +159,7 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
               </span>
               {!isCollapsed && (
                 <span className="font-display text-xl font-extrabold tracking-tight text-foreground">
-                  IC Trading
+                  wmTrader
                 </span>
               )}
             </Link>
@@ -305,7 +305,7 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="hidden sm:inline">IC Portal</span>
+                <span className="hidden sm:inline">wmTrader Portal</span>
                 <span className="hidden sm:inline" aria-hidden="true">
                   /
                 </span>
@@ -366,7 +366,7 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
 
         <footer className="border-t border-border/60 px-4 py-4 text-xs text-muted-foreground sm:px-6 lg:px-8">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-            <span>© 2026 IC Trading · Platform Trading & Pendanaan Klien</span>
+            <span>© 2026 wmTrader · Platform Trading & Pendanaan Klien</span>
             <div className="flex items-center gap-4">
               <Link to="/panduan-pengguna" className="transition-colors hover:text-foreground">
                 Panduan Pengguna

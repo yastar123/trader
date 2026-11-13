@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { KalenderAkademiView } from "@/components/workspace/kalender-akademi-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Kalender Akademi | IC Trading";
-const pageDescription = "Kalender rilis data ekonomi dan jadwal webinar edukasi IC Trading.";
+const pageTitle = "Kalender Akademi | wmTrader";
+const pageDescription = "Kalender rilis data ekonomi dan jadwal webinar edukasi wmTrader.";
 
 export const Route = createFileRoute("/kalender-akademi")({
   head: () => ({

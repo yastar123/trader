@@ -11,9 +11,9 @@ import {
   StrengthSection,
 } from "@/components/landing/sections";
 
-const pageTitle = "IC | Trading Edge Anda — Online Forex & CFD Trading";
+const pageTitle = "wmTrader | Platform Trading Forex & CFD";
 const pageDescription =
-  "Halaman broker trading: spread mulai 0.0 pip, akses ke berbagai pasar, dan informasi platform trading.";
+  "wmTrader menghadirkan akses ke berbagai pasar, informasi platform, dan fitur trading Forex & CFD.";
 
 export const Route = createFileRoute("/")({
   head: () => ({

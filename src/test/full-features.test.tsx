@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminDepositView } from "@/components/admin/admin-deposit-view";
 import { AdminLoginView } from "@/components/admin/admin-login-view";
+import { AdminMailView } from "@/components/admin/admin-mail-view";
 import { AdminPositionsView } from "@/components/admin/admin-positions-view";
 import { AccountPage } from "@/components/auth/account-page";
 import { DepositView } from "@/components/workspace/deposit-view";
@@ -34,6 +35,7 @@ vi.mock("@tanstack/react-router", () => ({
 const snapshotUsers = memoryStore.users.map((u) => ({ ...u }));
 const snapshotDeposits = [...memoryStore.deposits];
 const snapshotWithdrawals = [...memoryStore.withdrawals];
+const snapshotPositions = [...memoryStore.positions];
 const snapshotMethods = [...memoryStore.depositMethods];
 const snapshotLimits = { ...memoryStore.walletLimits };
 const snapshotMarkets = [...memoryStore.markets];
@@ -53,7 +55,7 @@ beforeEach(() => {
   }
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/api/session")) {
         return new Response(JSON.stringify(memoryStore.profile), { status: 200 });
@@ -96,7 +98,32 @@ beforeEach(() => {
         return new Response(JSON.stringify(memoryStore.journal), { status: 200 });
       }
       if (url.includes("/api/messages")) {
-        return new Response(JSON.stringify(memoryStore.messages), { status: 200 });
+        const userId = await db.getCurrentTraderId();
+        return new Response(JSON.stringify(userId ? await db.getMessagesForUser(userId) : []), {
+          status: 200,
+        });
+      }
+      if (url.includes("/api/admin/messages")) {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body ?? "{}")) as {
+            recipientUserId: string | null;
+            subject: string;
+            body: string;
+            category: "Peringatan Pasar" | "Sistem & Akun" | "Dukungan";
+          };
+          const result = await db.sendAdminMessage({
+            ...body,
+            recipientUserId: body.recipientUserId === "all" ? null : body.recipientUserId,
+            adminEmail: "admin@wmtrader.id",
+          });
+          return new Response(JSON.stringify(result.messages ?? []), {
+            status: result.error ? 404 : 201,
+          });
+        }
+        return new Response(JSON.stringify(await db.getAdminMessages()), { status: 200 });
+      }
+      if (url.includes("/api/admin/users")) {
+        return new Response(JSON.stringify(await db.getAdminUsers()), { status: 200 });
       }
       if (url.includes("/api/admin/session")) {
         return new Response(JSON.stringify({ authenticated: true, email: "admin@ictrading.id" }), {
@@ -132,6 +159,7 @@ afterEach(() => {
   memoryStore.users = snapshotUsers.map((u) => ({ ...u }));
   memoryStore.deposits = [...snapshotDeposits];
   memoryStore.withdrawals = [...snapshotWithdrawals];
+  memoryStore.positions = [...snapshotPositions];
   memoryStore.depositMethods = [...snapshotMethods];
   memoryStore.walletLimits = { ...snapshotLimits };
   memoryStore.markets = [...snapshotMarkets];
@@ -187,7 +215,7 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
       {
         label: "QRIS Instan",
         accountInfo: "IC-QRIS-9901",
-        accountHolder: "PT IC Trading Nusantara",
+        accountHolder: "wmTrader",
         fee: "Gratis (0%)",
         eta: "Instan setelah verifikasi",
         enabled: true,
@@ -347,6 +375,164 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
     const logs = await db.getAdminAudit();
     expect(logs.some((l) => l.action === "Perbarui Pengguna")).toBe(true);
   });
+
+  it("delivers targeted and broadcast admin mail with independent recipient state", async () => {
+    const [firstUser, secondUser] = memoryStore.users;
+    expect(firstUser).toBeDefined();
+    expect(secondUser).toBeDefined();
+
+    const targeted = await db.sendAdminMessage({
+      recipientUserId: firstUser!.id,
+      subject: "Pemberitahuan Pribadi",
+      body: "Surat ini hanya untuk pengguna pertama.",
+      category: "Sistem & Akun",
+      adminEmail: "admin@wmtrader.id",
+    });
+    expect(targeted.messages).toHaveLength(1);
+    expect(
+      (await db.getMessagesForUser(firstUser!.id)).some(
+        (message) => message.id === targeted.messages![0]!.id,
+      ),
+    ).toBe(true);
+    expect(
+      (await db.getMessagesForUser(secondUser!.id)).some(
+        (message) => message.id === targeted.messages![0]!.id,
+      ),
+    ).toBe(false);
+
+    const broadcast = await db.sendAdminMessage({
+      recipientUserId: null,
+      subject: "Pengumuman untuk Semua",
+      body: "Setiap pengguna mendapat salinan terpisah.",
+      category: "Sistem & Akun",
+      adminEmail: "admin@wmtrader.id",
+    });
+    expect(broadcast.messages).toHaveLength(memoryStore.users.length);
+    expect(new Set(broadcast.messages?.map((message) => message.recipientUserId)).size).toBe(
+      memoryStore.users.length,
+    );
+
+    const firstCopy = broadcast.messages!.find(
+      (message) => message.recipientUserId === firstUser!.id,
+    )!;
+    const secondCopy = broadcast.messages!.find(
+      (message) => message.recipientUserId === secondUser!.id,
+    )!;
+    await db.updateMessageForUser(firstCopy.id, firstUser!.id, { unread: false });
+    expect(
+      (await db.getMessagesForUser(firstUser!.id)).find((message) => message.id === firstCopy.id)
+        ?.unread,
+    ).toBe(false);
+    expect(
+      (await db.getMessagesForUser(secondUser!.id)).find((message) => message.id === secondCopy.id)
+        ?.unread,
+    ).toBe(true);
+    expect(memoryStore.auditLogs[0]?.action).toBe("Kirim Surat Admin");
+  });
+
+  it("lets administrators compose a letter for one user or everyone", async () => {
+    renderWithQuery(<AdminMailView />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("Penerima")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Penerima"), {
+      target: { value: memoryStore.users[0]!.id },
+    });
+    fireEvent.change(screen.getByLabelText("Subjek"), {
+      target: { value: "Surat dari admin" },
+    });
+    fireEvent.change(screen.getByLabelText("Isi Surat"), {
+      target: { value: "Informasi untuk pengguna tertentu." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Kirim Surat" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Surat berhasil dikirim kepada 1 pengguna.",
+      );
+    });
+    expect(
+      memoryStore.messages.some(
+        (message) =>
+          message.subject === "Surat dari admin" &&
+          message.recipientUserId === memoryStore.users[0]!.id,
+      ),
+    ).toBe(true);
+
+    cleanup();
+    memoryStore.profile.accountId = memoryStore.users[0]!.accountId;
+    renderWithQuery(<KotakSuratView />);
+    await waitFor(() => {
+      expect(screen.getByText("Surat dari admin")).toBeInTheDocument();
+    });
+  });
+
+  it("deletes admin positions, deposits, withdrawals, and users with audit records", async () => {
+    const userTemplate = memoryStore.users.find((user) => user.id === "USR-02");
+    const positionTemplate = memoryStore.positions[0];
+    const depositTemplate = memoryStore.deposits[0];
+    const withdrawalTemplate = memoryStore.withdrawals[0];
+    if (!userTemplate || !positionTemplate || !depositTemplate || !withdrawalTemplate) {
+      throw new Error("Missing seed data for admin deletion test.");
+    }
+
+    const user = {
+      ...userTemplate,
+      id: "USR-DELETE",
+      accountId: "IC-DELETE",
+      name: "Pengguna Uji Hapus",
+      email: "uji-hapus@example.com",
+    };
+    const position = {
+      ...positionTemplate,
+      id: "ORD-DELETE",
+      userId: user.id,
+      userName: user.name,
+      accountId: user.accountId,
+    };
+    const deposit = {
+      ...depositTemplate,
+      id: "DEP-DELETE",
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      accountId: user.accountId,
+    };
+    const withdrawal = {
+      ...withdrawalTemplate,
+      id: "WD-DELETE",
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      accountId: user.accountId,
+    };
+    memoryStore.users.push(user);
+    memoryStore.positions.push(position);
+    memoryStore.deposits.push(deposit);
+    memoryStore.withdrawals.push(withdrawal);
+
+    expect(await db.deleteAdminPosition(position.id, "admin@ictrading.id")).toBe(true);
+    expect(await db.deleteAdminDeposit(deposit.id, "admin@ictrading.id")).toBe(true);
+    expect(await db.deleteAdminWithdrawal(withdrawal.id, "admin@ictrading.id")).toBe(true);
+    expect(memoryStore.users.find((item) => item.id === user.id)?.balance).toBe(user.balance);
+
+    memoryStore.positions.push({ ...position, id: "ORD-CASCADE" });
+    memoryStore.deposits.push({ ...deposit, id: "DEP-CASCADE" });
+    memoryStore.withdrawals.push({ ...withdrawal, id: "WD-CASCADE" });
+    expect(await db.deleteAdminUser(user.id, "admin@ictrading.id")).toBe(true);
+    expect(memoryStore.users.some((item) => item.id === user.id)).toBe(false);
+    expect(memoryStore.positions.some((item) => item.userId === user.id)).toBe(false);
+    expect(memoryStore.deposits.some((item) => item.userId === user.id)).toBe(false);
+    expect(memoryStore.withdrawals.some((item) => item.userId === user.id)).toBe(false);
+    expect(await db.deleteAdminUser(user.id, "admin@ictrading.id")).toBe(false);
+
+    const actions = memoryStore.auditLogs.map((log) => log.action);
+    expect(actions).toContain("Hapus Posisi");
+    expect(actions).toContain("Hapus Deposit");
+    expect(actions).toContain("Hapus Withdraw");
+    expect(actions).toContain("Hapus Pengguna");
+  });
 });
 
 describe("Interactive UI Views & Menus Smoke Tests", () => {
@@ -394,7 +580,7 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     expect(screen.getByText("Pengaturan Pemberitahuan")).toBeInTheDocument();
   });
 
-  it("submits feedback form on Tentang IC Trading page", () => {
+  it("submits feedback form on the Tentang wmTrader page", () => {
     renderWithQuery(<TentangView />);
     fireEvent.change(screen.getByLabelText("Topik Pertanyaan"), {
       target: { value: "Informasi VPS" },

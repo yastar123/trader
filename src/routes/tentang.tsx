@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { TentangView } from "@/components/workspace/tentang-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
-const pageTitle = "Tentang | IC Trading";
+const pageTitle = "Tentang | wmTrader";
 const pageDescription =
-  "Informasi perusahaan, infrastruktur eksekusi, kepatuhan, dan kontak IC Trading.";
+  "Informasi platform, infrastruktur eksekusi, kepatuhan, dan kontak wmTrader.";
 
 export const Route = createFileRoute("/tentang")({
   head: () => ({

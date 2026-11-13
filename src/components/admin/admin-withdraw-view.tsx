@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Check, Save, Search, SlidersHorizontal, X } from "lucide-react";
+import { AdminDeleteAction } from "@/components/admin/admin-delete-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import {
   formatIdr,
@@ -130,6 +131,47 @@ export function AdminWithdrawView() {
         text: `Withdraw ${id} telah diverifikasi manual (${decision === "approve" ? "Disetujui & saldo dipotong" : "Ditolak"}).`,
       });
       await loadWithdrawals();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDeleteWithdrawal(item: WithdrawRequestRecord): Promise<boolean> {
+    setBusyId(item.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/admin/withdrawals/${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+      });
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setFeedback({
+          type: "err",
+          text: payload?.error ?? `Gagal menghapus withdraw ${item.id}.`,
+        });
+        return false;
+      }
+
+      setWithdrawals((current) => current.filter((withdrawal) => withdrawal.id !== item.id));
+      setFeedback({
+        type: "ok",
+        text: `Withdraw ${item.id} dihapus. Saldo akun tidak berubah.`,
+      });
+      try {
+        await loadWithdrawals();
+      } catch {
+        setFeedback({
+          type: "err",
+          text: `Withdraw ${item.id} sudah dihapus, tetapi daftar gagal dimuat ulang.`,
+        });
+      }
+      return true;
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : `Gagal menghapus withdraw ${item.id}.`,
+      });
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -412,6 +454,13 @@ export function AdminWithdrawView() {
                             </p>
                           </div>
                         )}
+                        <div className="mt-2">
+                          <AdminDeleteAction
+                            itemLabel={`withdraw ${item.id}`}
+                            disabled={busyId === item.id}
+                            onDelete={() => handleDeleteWithdrawal(item)}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AdminAuditView } from "@/components/admin/admin-audit-view";
 
-const pageTitle = "Log Audit · IC Admin";
-const pageDescription = "Riwayat verifikasi dan audit operasional administrator IC Trading.";
+const pageTitle = "Log Audit · wmTrader Admin";
+const pageDescription = "Riwayat verifikasi dan audit operasional administrator wmTrader.";
 
 export const Route = createFileRoute("/admin/audit")({
   head: () => ({

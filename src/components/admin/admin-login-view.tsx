@@ -59,7 +59,7 @@ export function AdminLoginView() {
     <main className="grid min-h-dvh bg-background lg:grid-cols-[0.95fr_1.05fr]">
       <section
         className="relative hidden min-h-dvh overflow-hidden bg-card lg:block"
-        aria-label="IC Trading Admin"
+        aria-label="wmTrader Admin"
       >
         <img
           src={heroRace}
@@ -70,10 +70,10 @@ export function AdminLoginView() {
         <div className="relative flex min-h-dvh flex-col justify-between p-10 xl:p-16">
           <Link to="/" className="inline-flex w-fit items-center gap-3 text-foreground">
             <span className="flex size-10 items-center justify-center rounded-md bg-primary text-sm font-extrabold text-primary-foreground">
-              IC
+              wmT
             </span>
             <span>
-              <span className="block font-display text-xl font-extrabold">IC Trading</span>
+              <span className="block font-display text-xl font-extrabold">wmTrader</span>
               <span className="block text-xs text-muted-foreground">Portal Administrator</span>
             </span>
           </Link>
@@ -89,7 +89,7 @@ export function AdminLoginView() {
               pantau seluruh aktivitas trading klien.
             </p>
           </div>
-          <p className="text-xs text-foreground/65">© IC Trading</p>
+          <p className="text-xs text-foreground/65">© wmTrader</p>
         </div>
       </section>
 
@@ -104,7 +104,7 @@ export function AdminLoginView() {
           </Link>
 
           <div className="mb-8">
-            <p className="text-sm font-semibold text-primary">IC Trading · Administrator</p>
+            <p className="text-sm font-semibold text-primary">wmTrader · Administrator</p>
             <h2 className="mt-3 font-display text-3xl font-bold">Masuk ke Portal Admin</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Masukkan kredensial administrator untuk mengakses pusat verifikasi dan manajemen
