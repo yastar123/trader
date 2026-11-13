@@ -10,12 +10,61 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BerandaRouteImport } from './routes/beranda'
+import { Route as DepositRouteImport } from './routes/deposit'
+import { Route as JurnalRouteImport } from './routes/jurnal'
+import { Route as KalenderAkademiRouteImport } from './routes/kalender-akademi'
+import { Route as KomunitasRouteImport } from './routes/komunitas'
+import { Route as KotakSuratRouteImport } from './routes/kotak-surat'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as PanduanPenggunaRouteImport } from './routes/panduan-pengguna'
+import { Route as PengaturanRouteImport } from './routes/pengaturan'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as TentangRouteImport } from './routes/tentang'
+import { Route as TradeRouteImport } from './routes/trade'
+import { Route as WithdrawRouteImport } from './routes/withdraw'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminAuditRouteImport } from './routes/admin/audit'
+import { Route as AdminDepositRouteImport } from './routes/admin/deposit'
+import { Route as AdminLoginRouteImport } from './routes/admin/login'
+import { Route as AdminMarketsRouteImport } from './routes/admin/markets'
+import { Route as AdminPositionsRouteImport } from './routes/admin/positions'
+import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as AdminWithdrawRouteImport } from './routes/admin/withdraw'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BerandaRoute = BerandaRouteImport.update({
+  id: '/beranda',
+  path: '/beranda',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DepositRoute = DepositRouteImport.update({
+  id: '/deposit',
+  path: '/deposit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JurnalRoute = JurnalRouteImport.update({
+  id: '/jurnal',
+  path: '/jurnal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KalenderAkademiRoute = KalenderAkademiRouteImport.update({
+  id: '/kalender-akademi',
+  path: '/kalender-akademi',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KomunitasRoute = KomunitasRouteImport.update({
+  id: '/komunitas',
+  path: '/komunitas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KotakSuratRoute = KotakSuratRouteImport.update({
+  id: '/kotak-surat',
+  path: '/kotak-surat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -23,40 +72,248 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PanduanPenggunaRoute = PanduanPenggunaRouteImport.update({
+  id: '/panduan-pengguna',
+  path: '/panduan-pengguna',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PengaturanRoute = PengaturanRouteImport.update({
+  id: '/pengaturan',
+  path: '/pengaturan',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TentangRoute = TentangRouteImport.update({
+  id: '/tentang',
+  path: '/tentang',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TradeRoute = TradeRouteImport.update({
+  id: '/trade',
+  path: '/trade',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WithdrawRoute = WithdrawRouteImport.update({
+  id: '/withdraw',
+  path: '/withdraw',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/admin/audit',
+  path: '/admin/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDepositRoute = AdminDepositRouteImport.update({
+  id: '/admin/deposit',
+  path: '/admin/deposit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLoginRoute = AdminLoginRouteImport.update({
+  id: '/admin/login',
+  path: '/admin/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminMarketsRoute = AdminMarketsRouteImport.update({
+  id: '/admin/markets',
+  path: '/admin/markets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPositionsRoute = AdminPositionsRouteImport.update({
+  id: '/admin/positions',
+  path: '/admin/positions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/admin/users',
+  path: '/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminWithdrawRoute = AdminWithdrawRouteImport.update({
+  id: '/admin/withdraw',
+  path: '/admin/withdraw',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/beranda': typeof BerandaRoute
+  '/deposit': typeof DepositRoute
+  '/jurnal': typeof JurnalRoute
+  '/kalender-akademi': typeof KalenderAkademiRoute
+  '/komunitas': typeof KomunitasRoute
+  '/kotak-surat': typeof KotakSuratRoute
   '/login': typeof LoginRoute
+  '/panduan-pengguna': typeof PanduanPenggunaRoute
+  '/pengaturan': typeof PengaturanRoute
   '/register': typeof RegisterRoute
+  '/tentang': typeof TentangRoute
+  '/trade': typeof TradeRoute
+  '/withdraw': typeof WithdrawRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/deposit': typeof AdminDepositRoute
+  '/admin/login': typeof AdminLoginRoute
+  '/admin/markets': typeof AdminMarketsRoute
+  '/admin/positions': typeof AdminPositionsRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/admin/withdraw': typeof AdminWithdrawRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/beranda': typeof BerandaRoute
+  '/deposit': typeof DepositRoute
+  '/jurnal': typeof JurnalRoute
+  '/kalender-akademi': typeof KalenderAkademiRoute
+  '/komunitas': typeof KomunitasRoute
+  '/kotak-surat': typeof KotakSuratRoute
   '/login': typeof LoginRoute
+  '/panduan-pengguna': typeof PanduanPenggunaRoute
+  '/pengaturan': typeof PengaturanRoute
   '/register': typeof RegisterRoute
+  '/tentang': typeof TentangRoute
+  '/trade': typeof TradeRoute
+  '/withdraw': typeof WithdrawRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/deposit': typeof AdminDepositRoute
+  '/admin/login': typeof AdminLoginRoute
+  '/admin/markets': typeof AdminMarketsRoute
+  '/admin/positions': typeof AdminPositionsRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/admin/withdraw': typeof AdminWithdrawRoute
+  '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/beranda': typeof BerandaRoute
+  '/deposit': typeof DepositRoute
+  '/jurnal': typeof JurnalRoute
+  '/kalender-akademi': typeof KalenderAkademiRoute
+  '/komunitas': typeof KomunitasRoute
+  '/kotak-surat': typeof KotakSuratRoute
   '/login': typeof LoginRoute
+  '/panduan-pengguna': typeof PanduanPenggunaRoute
+  '/pengaturan': typeof PengaturanRoute
   '/register': typeof RegisterRoute
+  '/tentang': typeof TentangRoute
+  '/trade': typeof TradeRoute
+  '/withdraw': typeof WithdrawRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/deposit': typeof AdminDepositRoute
+  '/admin/login': typeof AdminLoginRoute
+  '/admin/markets': typeof AdminMarketsRoute
+  '/admin/positions': typeof AdminPositionsRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/admin/withdraw': typeof AdminWithdrawRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/register'
+  fullPaths:
+    | '/'
+    | '/beranda'
+    | '/deposit'
+    | '/jurnal'
+    | '/kalender-akademi'
+    | '/komunitas'
+    | '/kotak-surat'
+    | '/login'
+    | '/panduan-pengguna'
+    | '/pengaturan'
+    | '/register'
+    | '/tentang'
+    | '/trade'
+    | '/withdraw'
+    | '/admin/audit'
+    | '/admin/deposit'
+    | '/admin/login'
+    | '/admin/markets'
+    | '/admin/positions'
+    | '/admin/users'
+    | '/admin/withdraw'
+    | '/admin/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register'
-  id: '__root__' | '/' | '/login' | '/register'
+  to:
+    | '/'
+    | '/beranda'
+    | '/deposit'
+    | '/jurnal'
+    | '/kalender-akademi'
+    | '/komunitas'
+    | '/kotak-surat'
+    | '/login'
+    | '/panduan-pengguna'
+    | '/pengaturan'
+    | '/register'
+    | '/tentang'
+    | '/trade'
+    | '/withdraw'
+    | '/admin/audit'
+    | '/admin/deposit'
+    | '/admin/login'
+    | '/admin/markets'
+    | '/admin/positions'
+    | '/admin/users'
+    | '/admin/withdraw'
+    | '/admin'
+  id:
+    | '__root__'
+    | '/'
+    | '/beranda'
+    | '/deposit'
+    | '/jurnal'
+    | '/kalender-akademi'
+    | '/komunitas'
+    | '/kotak-surat'
+    | '/login'
+    | '/panduan-pengguna'
+    | '/pengaturan'
+    | '/register'
+    | '/tentang'
+    | '/trade'
+    | '/withdraw'
+    | '/admin/audit'
+    | '/admin/deposit'
+    | '/admin/login'
+    | '/admin/markets'
+    | '/admin/positions'
+    | '/admin/users'
+    | '/admin/withdraw'
+    | '/admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BerandaRoute: typeof BerandaRoute
+  DepositRoute: typeof DepositRoute
+  JurnalRoute: typeof JurnalRoute
+  KalenderAkademiRoute: typeof KalenderAkademiRoute
+  KomunitasRoute: typeof KomunitasRoute
+  KotakSuratRoute: typeof KotakSuratRoute
   LoginRoute: typeof LoginRoute
+  PanduanPenggunaRoute: typeof PanduanPenggunaRoute
+  PengaturanRoute: typeof PengaturanRoute
   RegisterRoute: typeof RegisterRoute
+  TentangRoute: typeof TentangRoute
+  TradeRoute: typeof TradeRoute
+  WithdrawRoute: typeof WithdrawRoute
+  AdminAuditRoute: typeof AdminAuditRoute
+  AdminDepositRoute: typeof AdminDepositRoute
+  AdminLoginRoute: typeof AdminLoginRoute
+  AdminMarketsRoute: typeof AdminMarketsRoute
+  AdminPositionsRoute: typeof AdminPositionsRoute
+  AdminUsersRoute: typeof AdminUsersRoute
+  AdminWithdrawRoute: typeof AdminWithdrawRoute
+  AdminIndexRoute: typeof AdminIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +325,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/beranda': {
+      id: '/beranda'
+      path: '/beranda'
+      fullPath: '/beranda'
+      preLoaderRoute: typeof BerandaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deposit': {
+      id: '/deposit'
+      path: '/deposit'
+      fullPath: '/deposit'
+      preLoaderRoute: typeof DepositRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jurnal': {
+      id: '/jurnal'
+      path: '/jurnal'
+      fullPath: '/jurnal'
+      preLoaderRoute: typeof JurnalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kalender-akademi': {
+      id: '/kalender-akademi'
+      path: '/kalender-akademi'
+      fullPath: '/kalender-akademi'
+      preLoaderRoute: typeof KalenderAkademiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/komunitas': {
+      id: '/komunitas'
+      path: '/komunitas'
+      fullPath: '/komunitas'
+      preLoaderRoute: typeof KomunitasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kotak-surat': {
+      id: '/kotak-surat'
+      path: '/kotak-surat'
+      fullPath: '/kotak-surat'
+      preLoaderRoute: typeof KotakSuratRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/panduan-pengguna': {
+      id: '/panduan-pengguna'
+      path: '/panduan-pengguna'
+      fullPath: '/panduan-pengguna'
+      preLoaderRoute: typeof PanduanPenggunaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pengaturan': {
+      id: '/pengaturan'
+      path: '/pengaturan'
+      fullPath: '/pengaturan'
+      preLoaderRoute: typeof PengaturanRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/register': {
@@ -82,13 +395,109 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tentang': {
+      id: '/tentang'
+      path: '/tentang'
+      fullPath: '/tentang'
+      preLoaderRoute: typeof TentangRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trade': {
+      id: '/trade'
+      path: '/trade'
+      fullPath: '/trade'
+      preLoaderRoute: typeof TradeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/withdraw': {
+      id: '/withdraw'
+      path: '/withdraw'
+      fullPath: '/withdraw'
+      preLoaderRoute: typeof WithdrawRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/admin/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/deposit': {
+      id: '/admin/deposit'
+      path: '/admin/deposit'
+      fullPath: '/admin/deposit'
+      preLoaderRoute: typeof AdminDepositRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/login': {
+      id: '/admin/login'
+      path: '/admin/login'
+      fullPath: '/admin/login'
+      preLoaderRoute: typeof AdminLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/markets': {
+      id: '/admin/markets'
+      path: '/admin/markets'
+      fullPath: '/admin/markets'
+      preLoaderRoute: typeof AdminMarketsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/positions': {
+      id: '/admin/positions'
+      path: '/admin/positions'
+      fullPath: '/admin/positions'
+      preLoaderRoute: typeof AdminPositionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/admin/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/withdraw': {
+      id: '/admin/withdraw'
+      path: '/admin/withdraw'
+      fullPath: '/admin/withdraw'
+      preLoaderRoute: typeof AdminWithdrawRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BerandaRoute: BerandaRoute,
+  DepositRoute: DepositRoute,
+  JurnalRoute: JurnalRoute,
+  KalenderAkademiRoute: KalenderAkademiRoute,
+  KomunitasRoute: KomunitasRoute,
+  KotakSuratRoute: KotakSuratRoute,
   LoginRoute: LoginRoute,
+  PanduanPenggunaRoute: PanduanPenggunaRoute,
+  PengaturanRoute: PengaturanRoute,
   RegisterRoute: RegisterRoute,
+  TentangRoute: TentangRoute,
+  TradeRoute: TradeRoute,
+  WithdrawRoute: WithdrawRoute,
+  AdminAuditRoute: AdminAuditRoute,
+  AdminDepositRoute: AdminDepositRoute,
+  AdminLoginRoute: AdminLoginRoute,
+  AdminMarketsRoute: AdminMarketsRoute,
+  AdminPositionsRoute: AdminPositionsRoute,
+  AdminUsersRoute: AdminUsersRoute,
+  AdminWithdrawRoute: AdminWithdrawRoute,
+  AdminIndexRoute: AdminIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
