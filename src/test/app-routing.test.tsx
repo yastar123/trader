@@ -54,6 +54,7 @@ describe("App routing", () => {
     ["/admin/deposit", "/admin/deposit"],
     ["/admin/withdraw", "/admin/withdraw"],
     ["/admin/users", "/admin/users"],
+    ["/admin/calendar", "/admin/calendar"],
     ["/admin/audit", "/admin/audit"],
   ])("matches the admin portal page at %s", (path, expectedFullPath) => {
     const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });

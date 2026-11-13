@@ -5,6 +5,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   CandlestickChart,
+  CalendarDays,
   ExternalLink,
   History,
   LayoutDashboard,
@@ -32,6 +33,7 @@ type AdminNavItem = {
     | "/admin/withdraw"
     | "/admin/users"
     | "/admin/mail"
+    | "/admin/calendar"
     | "/admin/audit";
   icon: typeof LayoutDashboard;
   badge?: number;
@@ -116,6 +118,7 @@ export function AdminShell({
     },
     { label: "Pengguna", to: "/admin/users", icon: Users },
     { label: "Kotak Surat", to: "/admin/mail", icon: Mail },
+    { label: "Kalender", to: "/admin/calendar", icon: CalendarDays },
     { label: "Log Audit", to: "/admin/audit", icon: History },
   ];
 

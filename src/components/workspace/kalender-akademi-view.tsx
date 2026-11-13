@@ -1,61 +1,78 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bell, Calendar, Check, Clock } from "lucide-react";
+import type { CalendarEventRecord } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { cn } from "@/lib/utils";
 
-type ImpactLevel = "Tinggi" | "Sedang" | "Rendah";
-
-type EconomicEvent = {
-  id: string;
-  time: string;
-  currency: "USD" | "EUR" | "GBP" | "JPY";
-  title: string;
-  impact: ImpactLevel;
-  actual: string;
-  forecast: string;
-  previous: string;
-};
-
-type AcademySession = {
-  id: string;
-  date: string;
-  time: string;
-  title: string;
-  mentor: string;
-  level: "Pemula" | "Menengah" | "Lanjutan";
-  format: string;
-  description: string;
-};
-
-const economicEvents: EconomicEvent[] = [];
-const academySessions: AcademySession[] = [];
+type ImpactLevel = CalendarEventRecord["impact"];
 
 export function KalenderAkademiView() {
+  const [calendarItems, setCalendarItems] = useState<CalendarEventRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [activeTab, setActiveTab] = useState<"Kalender Ekonomi" | "Jadwal Akademi">(
     "Kalender Ekonomi",
   );
   const [impactFilter, setImpactFilter] = useState<"Semua" | ImpactLevel>("Semua");
-  const [currencyFilter, setCurrencyFilter] = useState<"Semua" | "USD" | "EUR" | "GBP" | "JPY">(
-    "Semua",
-  );
+  const [currencyFilter, setCurrencyFilter] = useState("Semua");
   const [levelFilter, setLevelFilter] = useState<"Semua" | "Pemula" | "Menengah" | "Lanjutan">(
     "Semua",
   );
   const [reminders, setReminders] = useState<string[]>([]);
   const [enrolled, setEnrolled] = useState<string[]>([]);
 
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/calendar")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Kalender tidak dapat dimuat (${response.status}).`);
+        return (await response.json()) as CalendarEventRecord[];
+      })
+      .then((items) => {
+        if (active) setCalendarItems(items);
+      })
+      .catch((cause: unknown) => {
+        if (active)
+          setLoadError(cause instanceof Error ? cause.message : "Kalender tidak dapat dimuat.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const filteredEvents = useMemo(() => {
-    return economicEvents.filter((ev) => {
-      if (impactFilter !== "Semua" && ev.impact !== impactFilter) return false;
-      if (currencyFilter !== "Semua" && ev.currency !== currencyFilter) return false;
-      return true;
-    });
-  }, [impactFilter, currencyFilter]);
+    return calendarItems
+      .filter((ev) => ev.type === "Kalender Ekonomi")
+      .filter((ev) => {
+        if (impactFilter !== "Semua" && ev.impact !== impactFilter) return false;
+        if (currencyFilter !== "Semua" && ev.currency !== currencyFilter) return false;
+        return true;
+      });
+  }, [calendarItems, impactFilter, currencyFilter]);
+
+  const currencies = useMemo(
+    () =>
+      [
+        ...new Set(
+          calendarItems
+            .filter((item) => item.type === "Kalender Ekonomi")
+            .map((item) => item.currency),
+        ),
+      ]
+        .filter(Boolean)
+        .sort(),
+    [calendarItems],
+  );
 
   const filteredAcademy = useMemo(() => {
-    return academySessions.filter((s) => levelFilter === "Semua" || s.level === levelFilter);
-  }, [levelFilter]);
+    return calendarItems
+      .filter((item) => item.type === "Jadwal Akademi")
+      .filter((session) => levelFilter === "Semua" || session.level === levelFilter);
+  }, [calendarItems, levelFilter]);
 
   const eventsPagination = usePagination(filteredEvents, 4);
   const academyPagination = usePagination(filteredAcademy, 3);
@@ -101,6 +118,14 @@ export function KalenderAkademiView() {
 
       {activeTab === "Kalender Ekonomi" ? (
         <section className="space-y-4">
+          {loadError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {loadError}
+            </p>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1">
               {(["Semua", "Tinggi", "Sedang", "Rendah"] as const).map((imp) => (
@@ -121,7 +146,7 @@ export function KalenderAkademiView() {
             </div>
 
             <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
-              {(["Semua", "USD", "EUR", "GBP", "JPY"] as const).map((cur) => (
+              {["Semua", ...currencies].map((cur) => (
                 <button
                   key={cur}
                   type="button"
@@ -158,7 +183,9 @@ export function KalenderAkademiView() {
                   {eventsPagination.totalItems === 0 && (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
-                        Data kalender ekonomi belum tersedia.
+                        {loading
+                          ? "Memuat kalender ekonomi..."
+                          : "Data kalender ekonomi belum tersedia."}
                       </td>
                     </tr>
                   )}
@@ -167,10 +194,17 @@ export function KalenderAkademiView() {
                     return (
                       <tr key={ev.id} className="hover:bg-accent/30">
                         <td className="py-3.5 pr-4 font-mono text-xs whitespace-nowrap tabular-nums text-muted-foreground">
-                          {ev.time}
+                          {ev.date} · {ev.time}
                         </td>
-                        <td className="py-3.5 pr-4 font-mono font-bold">{ev.currency}</td>
-                        <td className="py-3.5 pr-4 font-medium text-foreground">{ev.title}</td>
+                        <td className="py-3.5 pr-4 font-mono font-bold">{ev.currency || "—"}</td>
+                        <td className="py-3.5 pr-4 font-medium text-foreground">
+                          {ev.title}
+                          {ev.description && (
+                            <span className="mt-1 block max-w-lg text-xs font-normal text-muted-foreground">
+                              {ev.description}
+                            </span>
+                          )}
+                        </td>
                         <td
                           className={cn(
                             "py-3.5 pr-4 text-xs font-semibold whitespace-nowrap",
@@ -184,13 +218,13 @@ export function KalenderAkademiView() {
                           {ev.impact}
                         </td>
                         <td className="py-3.5 pr-4 text-right font-mono tabular-nums">
-                          {ev.actual}
+                          {ev.actual || "—"}
                         </td>
                         <td className="py-3.5 pr-4 text-right font-mono tabular-nums text-muted-foreground">
-                          {ev.forecast}
+                          {ev.forecast || "—"}
                         </td>
                         <td className="py-3.5 pr-4 text-right font-mono tabular-nums text-muted-foreground">
-                          {ev.previous}
+                          {ev.previous || "—"}
                         </td>
                         <td className="py-3.5 text-right">
                           <Button
@@ -226,6 +260,14 @@ export function KalenderAkademiView() {
         </section>
       ) : (
         <section className="space-y-4">
+          {loadError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {loadError}
+            </p>
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1 sm:w-fit">
             {(["Semua", "Pemula", "Menengah", "Lanjutan"] as const).map((lvl) => (
               <button
@@ -247,7 +289,7 @@ export function KalenderAkademiView() {
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {academyPagination.totalItems === 0 && (
               <p className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground md:col-span-2 lg:col-span-3">
-                Jadwal akademi belum tersedia.
+                {loading ? "Memuat jadwal akademi..." : "Jadwal akademi belum tersedia."}
               </p>
             )}
             {academyPagination.paginatedItems.map((session) => {

@@ -20,7 +20,7 @@ export const Route = createFileRoute("/riwayat")({
 function HistoryPage() {
   return (
     <WorkspaceShell title="Riwayat" fullWidth>
-      <TradeView mode="positions" initialTab="Ditutup" positionLayout="compact" />
+      <TradeView mode="positions" initialTab="Ditutup" positionLayout="plain" />
     </WorkspaceShell>
   );
 }

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminDepositView } from "@/components/admin/admin-deposit-view";
+import { AdminCalendarView } from "@/components/admin/admin-calendar-view";
 import { AdminLoginView } from "@/components/admin/admin-login-view";
 import { AdminMailView } from "@/components/admin/admin-mail-view";
 import { AdminPositionsView } from "@/components/admin/admin-positions-view";
@@ -43,6 +44,7 @@ const snapshotLimits = { ...memoryStore.walletLimits };
 const snapshotMarkets = [...memoryStore.markets];
 const snapshotJournal = [...memoryStore.journal];
 const snapshotMessages = [...memoryStore.messages];
+const snapshotCalendarItems = [...memoryStore.calendarItems];
 const snapshotPosts = [...memoryStore.communityPosts];
 const snapshotAudit = [...memoryStore.auditLogs];
 const snapshotProfile = { ...memoryStore.profile };
@@ -124,6 +126,24 @@ beforeEach(() => {
         }
         return new Response(JSON.stringify(await db.getAdminMessages()), { status: 200 });
       }
+      if (url.includes("/api/admin/calendar")) {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body ?? "{}")) as Parameters<
+            typeof db.createCalendarEvent
+          >[0];
+          const created = await db.createCalendarEvent(body, "admin@wmtrader.id");
+          return new Response(JSON.stringify(created), { status: 201 });
+        }
+        if (init?.method === "DELETE") {
+          const id = decodeURIComponent(url.split("/").at(-1) ?? "");
+          const deleted = await db.deleteCalendarEvent(id, "admin@wmtrader.id");
+          return new Response(JSON.stringify({ ok: deleted }), { status: deleted ? 200 : 404 });
+        }
+        return new Response(JSON.stringify(await db.getCalendarEvents()), { status: 200 });
+      }
+      if (url.includes("/api/calendar")) {
+        return new Response(JSON.stringify(await db.getCalendarEvents()), { status: 200 });
+      }
       if (url.includes("/api/admin/users")) {
         return new Response(JSON.stringify(await db.getAdminUsers()), { status: 200 });
       }
@@ -167,6 +187,7 @@ afterEach(() => {
   memoryStore.markets = [...snapshotMarkets];
   memoryStore.journal = [...snapshotJournal];
   memoryStore.messages = [...snapshotMessages];
+  memoryStore.calendarItems = [...snapshotCalendarItems];
   memoryStore.communityPosts = [...snapshotPosts];
   memoryStore.auditLogs = [...snapshotAudit];
   memoryStore.profile = { ...snapshotProfile };
@@ -178,6 +199,31 @@ function renderWithQuery(ui: ReactNode) {
 }
 
 describe("Full Feature Suite — Trader & Admin Core Services", () => {
+  it("publishes and removes calendar information for all users", async () => {
+    const created = await db.createCalendarEvent(
+      {
+        type: "Jadwal Akademi",
+        date: "2026-12-01",
+        time: "19:00",
+        title: "Kelas Analisis Pasar",
+        description: "Sesi untuk semua trader.",
+        currency: "",
+        impact: "Rendah",
+        actual: "",
+        forecast: "",
+        previous: "",
+        mentor: "Tim wmTrader",
+        level: "Pemula",
+        format: "Webinar",
+      },
+      "admin@wmtrader.id",
+    );
+    expect(await db.getCalendarEvents()).toContainEqual(created);
+    expect(await db.deleteCalendarEvent(created.id, "admin@wmtrader.id")).toBe(true);
+    expect(await db.getCalendarEvents()).not.toContainEqual(created);
+    expect(memoryStore.auditLogs[0]?.action).toBe("Menghapus Informasi Kalender");
+  });
+
   it("does not restore a demo trader or pretend a failed registration succeeded", async () => {
     expect(DEFAULT_SESSION.loggedIn).toBe(false);
     expect(DEFAULT_SESSION.accountId).toBe("");
@@ -571,13 +617,60 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
 });
 
 describe("Interactive UI Views & Menus Smoke Tests", () => {
-  it("switches Kalender Akademi tabs and filters cleanly", () => {
+  it("shows published calendar items to users and switches calendar tabs", async () => {
+    memoryStore.calendarItems = [
+      {
+        id: "CAL-ECON",
+        type: "Kalender Ekonomi",
+        date: "2026-12-02",
+        time: "20:30",
+        title: "Rilis Inflasi AS",
+        description: "Perhatikan volatilitas pasar.",
+        currency: "USD",
+        impact: "Tinggi",
+        actual: "",
+        forecast: "2.5%",
+        previous: "2.6%",
+        mentor: "",
+        level: "Pemula",
+        format: "",
+        createdAt: "2026-11-12T00:00:00.000Z",
+      },
+      {
+        id: "CAL-ACADEMY",
+        type: "Jadwal Akademi",
+        date: "2026-12-03",
+        time: "19:00",
+        title: "Webinar Trading Dasar",
+        description: "Pengenalan manajemen risiko.",
+        currency: "",
+        impact: "Rendah",
+        actual: "",
+        forecast: "",
+        previous: "",
+        mentor: "Tim wmTrader",
+        level: "Pemula",
+        format: "Webinar",
+        createdAt: "2026-11-12T00:00:00.000Z",
+      },
+    ];
     renderWithQuery(<KalenderAkademiView />);
-    expect(screen.getByText("Kalender Akademi")).toBeInTheDocument();
-    expect(screen.getByText("Data kalender ekonomi belum tersedia.")).toBeInTheDocument();
+    expect(await screen.findByText("Rilis Inflasi AS")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Jadwal Akademi" }));
-    expect(screen.getByText("Jadwal akademi belum tersedia.")).toBeInTheDocument();
+    expect(await screen.findByText("Webinar Trading Dasar")).toBeInTheDocument();
+  });
+
+  it("allows administrators to publish calendar information", async () => {
+    renderWithQuery(<AdminCalendarView />);
+    fireEvent.change(await screen.findByLabelText("Judul"), {
+      target: { value: "Data Tenaga Kerja AS" },
+    });
+    fireEvent.change(screen.getByLabelText("Tanggal"), {
+      target: { value: "2026-12-04" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Terbitkan ke Semua Pengguna" }));
+    expect(await screen.findByText("Data Tenaga Kerja AS")).toBeInTheDocument();
   });
 
   it("filters Panduan Pengguna and toggles onboarding checklist and FAQ", () => {
@@ -721,6 +814,17 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     expect(screen.getByText("Saldo:")).toBeInTheDocument();
     expect(screen.getByText("Level Margin (%):")).toBeInTheDocument();
     expect(screen.getByText(/EURUSD,/)).toBeInTheDocument();
+    cleanup();
+
+    renderWithQuery(<TradeView mode="positions" initialTab="Ditutup" positionLayout="plain" />);
+    await waitFor(() => {
+      expect(screen.getByRole("columnheader", { name: "ID Order" })).toBeVisible();
+    });
+    expect(screen.getByRole("button", { name: /Riwayat Ditutup/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByRole("region", { name: "Ringkasan saldo dan margin" })).toBeNull();
     cleanup();
 
     renderWithQuery(<TradeView />);

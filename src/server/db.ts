@@ -19,6 +19,7 @@ import {
   type AdminUserRecord,
   type AuditLogRecord,
   type CandleRecord,
+  type CalendarEventRecord,
   type CommunityPostRecord,
   type DepositMethodRecord,
   type DepositRequestRecord,
@@ -250,6 +251,30 @@ function mapMessageRow(row: Record<string, unknown>): InboxMessage {
     timestamp: String(row.timestamp_label),
     unread: Boolean(row.unread),
     archived: Boolean(row.archived),
+  };
+}
+
+function mapCalendarEventRow(row: Record<string, unknown>): CalendarEventRecord {
+  return {
+    id: String(row.id),
+    type: row.event_type as CalendarEventRecord["type"],
+    date:
+      row.event_date instanceof Date
+        ? row.event_date.toISOString().slice(0, 10)
+        : String(row.event_date).slice(0, 10),
+    time: String(row.event_time),
+    title: String(row.title),
+    description: String(row.description ?? ""),
+    currency: String(row.currency ?? ""),
+    impact: row.impact as CalendarEventRecord["impact"],
+    actual: String(row.actual ?? ""),
+    forecast: String(row.forecast ?? ""),
+    previous: String(row.previous ?? ""),
+    mentor: String(row.mentor ?? ""),
+    level: row.level as CalendarEventRecord["level"],
+    format: String(row.format ?? ""),
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
 }
 
@@ -1827,6 +1852,111 @@ export const db = {
 
   async getAdminMessages(): Promise<InboxMessage[]> {
     return this.getMessages();
+  },
+
+  async getCalendarEvents(): Promise<CalendarEventRecord[]> {
+    if (!pgReady || !pool)
+      return [...memoryStore.calendarItems].sort((a, b) =>
+        `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`),
+      );
+    const result = await pool.query(
+      `SELECT * FROM calendar_events ORDER BY event_date ASC, event_time ASC`,
+    );
+    return result.rows.map((row) => mapCalendarEventRow(row as Record<string, unknown>));
+  },
+
+  async createCalendarEvent(
+    event: Omit<CalendarEventRecord, "id" | "createdAt">,
+    adminEmail: string,
+  ): Promise<CalendarEventRecord> {
+    const created: CalendarEventRecord = {
+      ...event,
+      id: `CAL-${crypto.randomBytes(6).toString("hex")}`,
+      createdAt: new Date().toISOString(),
+    };
+    const audit: AuditLogRecord = {
+      id: `AUD-${crypto.randomBytes(5).toString("hex")}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Membuat Informasi Kalender",
+      target: created.title,
+      detail: `${created.type} · ${created.date} ${created.time}`,
+    };
+
+    if (!pgReady || !pool) {
+      memoryStore.calendarItems = [...memoryStore.calendarItems, created];
+      memoryStore.auditLogs = [audit, ...memoryStore.auditLogs];
+      return created;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO calendar_events (
+         id, event_type, event_date, event_time, title, description, currency,
+         impact, actual, forecast, previous, mentor, level, format
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       RETURNING *`,
+      [
+        created.id,
+        created.type,
+        created.date,
+        created.time,
+        created.title,
+        created.description,
+        created.currency,
+        created.impact,
+        created.actual,
+        created.forecast,
+        created.previous,
+        created.mentor,
+        created.level,
+        created.format,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO audit_logs (id, timestamp_label, actor, action, target, detail)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [audit.id, audit.timestamp, audit.actor, audit.action, audit.target, audit.detail],
+    );
+    return mapCalendarEventRow(result.rows[0] as Record<string, unknown>);
+  },
+
+  async deleteCalendarEvent(id: string, adminEmail: string): Promise<boolean> {
+    if (!pgReady || !pool) {
+      const event = memoryStore.calendarItems.find((item) => item.id === id);
+      if (!event) return false;
+      memoryStore.calendarItems = memoryStore.calendarItems.filter((item) => item.id !== id);
+      memoryStore.auditLogs = [
+        {
+          id: `AUD-${crypto.randomBytes(5).toString("hex")}`,
+          timestamp: `Hari ini · ${nowWibLabel()}`,
+          actor: adminEmail,
+          action: "Menghapus Informasi Kalender",
+          target: event.title,
+          detail: `${event.type} · ${event.date} ${event.time}`,
+        },
+        ...memoryStore.auditLogs,
+      ];
+      return true;
+    }
+    const deleted = await pool.query(
+      `DELETE FROM calendar_events WHERE id = $1 RETURNING id, title, event_type, event_date, event_time`,
+      [id],
+    );
+    if (deleted.rowCount === 0) return false;
+    const event = deleted.rows[0] as Record<string, unknown>;
+    await pool.query(
+      `INSERT INTO audit_logs (id, timestamp_label, actor, action, target, detail)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        `AUD-${crypto.randomBytes(5).toString("hex")}`,
+        `Hari ini · ${nowWibLabel()}`,
+        adminEmail,
+        "Menghapus Informasi Kalender",
+        String(event.title),
+        `${String(event.event_type)} · ${String(event.event_date).slice(0, 10)} ${String(event.event_time)}`,
+      ],
+    );
+    return true;
   },
 
   async createMessage(

@@ -91,7 +91,7 @@ function computeFloatingPnl(
 type TradeViewProps = {
   mode?: "terminal" | "positions" | "chart";
   initialTab?: "Terbuka" | "Tertunda" | "Ditutup";
-  positionLayout?: "table" | "compact";
+  positionLayout?: "table" | "compact" | "plain";
 };
 
 export function TradeView({
@@ -1629,7 +1629,11 @@ export function TradeView({
       {/* Positions & Orders Table with Live P&L */}
       <section
         hidden={mode === "chart" || positionLayout === "compact"}
-        className="rounded-xl border border-border bg-card p-5 sm:p-6"
+        className={
+          positionLayout === "plain"
+            ? "w-full"
+            : "rounded-xl border border-border bg-card p-5 sm:p-6"
+        }
       >
         <div className="flex flex-col items-stretch gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="grid w-full grid-cols-1 gap-1 rounded-lg border border-border bg-background p-1 sm:flex sm:w-auto">

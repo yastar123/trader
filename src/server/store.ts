@@ -105,6 +105,24 @@ export type InboxMessage = {
   archived: boolean;
 };
 
+export type CalendarEventRecord = {
+  id: string;
+  type: "Kalender Ekonomi" | "Jadwal Akademi";
+  date: string;
+  time: string;
+  title: string;
+  description: string;
+  currency: string;
+  impact: "Tinggi" | "Sedang" | "Rendah";
+  actual: string;
+  forecast: string;
+  previous: string;
+  mentor: string;
+  level: "Pemula" | "Menengah" | "Lanjutan";
+  format: string;
+  createdAt: string;
+};
+
 export type CommunityPostRecord = {
   id: string;
   author: string;
@@ -1302,6 +1320,8 @@ export const memoryStore = {
       archived: false,
     },
   ] as InboxMessage[],
+
+  calendarItems: [] as CalendarEventRecord[],
 
   communityPosts: [
     {

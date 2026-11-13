@@ -154,6 +154,27 @@ CREATE TABLE IF NOT EXISTS community_posts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL CHECK (event_type IN ('Kalender Ekonomi', 'Jadwal Akademi')),
+  event_date DATE NOT NULL,
+  event_time TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  currency TEXT NOT NULL DEFAULT '',
+  impact TEXT NOT NULL DEFAULT 'Rendah',
+  actual TEXT NOT NULL DEFAULT '',
+  forecast TEXT NOT NULL DEFAULT '',
+  previous TEXT NOT NULL DEFAULT '',
+  mentor TEXT NOT NULL DEFAULT '',
+  level TEXT NOT NULL DEFAULT 'Pemula',
+  format TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS calendar_events_date_time_idx
+  ON calendar_events (event_date, event_time);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   timestamp_label TEXT NOT NULL,

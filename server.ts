@@ -359,6 +359,10 @@ function createApiRouter() {
     return res.json(msgs);
   });
 
+  api.get("/calendar", async (_req: Request, res: Response) => {
+    res.json(await db.getCalendarEvents());
+  });
+
   api.post("/messages", async (req: Request, res: Response) => {
     const body = req.body as { subject?: string; body?: string };
     const userId = await db.getCurrentTraderId();
@@ -471,6 +475,94 @@ function createApiRouter() {
   api.get("/admin/overview", requireAdmin, async (_req: Request, res: Response) => {
     const overview = await db.getAdminOverview();
     res.json(overview);
+  });
+
+  api.get("/admin/calendar", requireAdmin, async (_req: Request, res: Response) => {
+    res.json(await db.getCalendarEvents());
+  });
+
+  api.post("/admin/calendar", requireAdmin, async (req: Request, res: Response) => {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ error: "Informasi kalender harus dikirim sebagai objek." });
+    }
+    const body = req.body as Record<string, unknown>;
+    const stringFields = [
+      "date",
+      "time",
+      "title",
+      "description",
+      "currency",
+      "actual",
+      "forecast",
+      "previous",
+      "mentor",
+      "format",
+    ];
+    if (
+      stringFields.some((field) => body[field] !== undefined && typeof body[field] !== "string")
+    ) {
+      return res.status(400).json({ error: "Kolom teks kalender harus berupa teks." });
+    }
+    const type = body["type"];
+    const title = typeof body["title"] === "string" ? body["title"].trim() : "";
+    const date = typeof body["date"] === "string" ? body["date"].trim() : "";
+    const time = typeof body["time"] === "string" ? body["time"].trim() : "";
+    const parsedDate = new Date(`${date}T00:00:00Z`);
+    const isImpact = (value: unknown): value is "Tinggi" | "Sedang" | "Rendah" =>
+      value === "Tinggi" || value === "Sedang" || value === "Rendah";
+    const isLevel = (value: unknown): value is "Pemula" | "Menengah" | "Lanjutan" =>
+      value === "Pemula" || value === "Menengah" || value === "Lanjutan";
+    if (
+      (type !== "Kalender Ekonomi" && type !== "Jadwal Akademi") ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      Number.isNaN(parsedDate.getTime()) ||
+      parsedDate.toISOString().slice(0, 10) !== date ||
+      !/^\d{2}:\d{2}$/.test(time) ||
+      Number(time.slice(0, 2)) > 23 ||
+      Number(time.slice(3, 5)) > 59 ||
+      !title ||
+      title.length > 180 ||
+      (typeof body["description"] === "string" && body["description"].length > 2000)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Jenis, tanggal, waktu, dan judul wajib diisi dengan benar." });
+    }
+    if (
+      (body["impact"] !== undefined && !isImpact(body["impact"])) ||
+      (body["level"] !== undefined && !isLevel(body["level"]))
+    ) {
+      return res.status(400).json({ error: "Nilai dampak atau tingkat akademi tidak valid." });
+    }
+
+    const created = await db.createCalendarEvent(
+      {
+        type,
+        date,
+        time,
+        title,
+        description: typeof body["description"] === "string" ? body["description"].trim() : "",
+        currency: typeof body["currency"] === "string" ? body["currency"].trim() : "",
+        impact: isImpact(body["impact"]) ? body["impact"] : "Rendah",
+        actual: typeof body["actual"] === "string" ? body["actual"].trim() : "",
+        forecast: typeof body["forecast"] === "string" ? body["forecast"].trim() : "",
+        previous: typeof body["previous"] === "string" ? body["previous"].trim() : "",
+        mentor: typeof body["mentor"] === "string" ? body["mentor"].trim() : "",
+        level: isLevel(body["level"]) ? body["level"] : "Pemula",
+        format: typeof body["format"] === "string" ? body["format"].trim() : "",
+      },
+      String(res.locals["adminEmail"] ?? "admin"),
+    );
+    return res.status(201).json(created);
+  });
+
+  api.delete("/admin/calendar/:id", requireAdmin, async (req: Request, res: Response) => {
+    const deleted = await db.deleteCalendarEvent(
+      String(req.params["id"] ?? ""),
+      String(res.locals["adminEmail"] ?? "admin"),
+    );
+    if (!deleted) return res.status(404).json({ error: "Informasi kalender tidak ditemukan." });
+    return res.json({ ok: true });
   });
 
   api.get("/admin/deposits", requireAdmin, async (_req: Request, res: Response) => {

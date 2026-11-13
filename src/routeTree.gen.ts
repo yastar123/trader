@@ -28,6 +28,7 @@ import { Route as TradeRouteImport } from './routes/trade'
 import { Route as WithdrawRouteImport } from './routes/withdraw'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
+import { Route as AdminCalendarRouteImport } from './routes/admin/calendar'
 import { Route as AdminDepositRouteImport } from './routes/admin/deposit'
 import { Route as AdminLoginRouteImport } from './routes/admin/login'
 import { Route as AdminMailRouteImport } from './routes/admin/mail'
@@ -131,6 +132,11 @@ const AdminAuditRoute = AdminAuditRouteImport.update({
   path: '/admin/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCalendarRoute = AdminCalendarRouteImport.update({
+  id: '/admin/calendar',
+  path: '/admin/calendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminDepositRoute = AdminDepositRouteImport.update({
   id: '/admin/deposit',
   path: '/admin/deposit',
@@ -186,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/trade': typeof TradeRoute
   '/withdraw': typeof WithdrawRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/calendar': typeof AdminCalendarRoute
   '/admin/deposit': typeof AdminDepositRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mail': typeof AdminMailRoute
@@ -214,6 +221,7 @@ export interface FileRoutesByTo {
   '/trade': typeof TradeRoute
   '/withdraw': typeof WithdrawRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/calendar': typeof AdminCalendarRoute
   '/admin/deposit': typeof AdminDepositRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mail': typeof AdminMailRoute
@@ -243,6 +251,7 @@ export interface FileRoutesById {
   '/trade': typeof TradeRoute
   '/withdraw': typeof WithdrawRoute
   '/admin/audit': typeof AdminAuditRoute
+  '/admin/calendar': typeof AdminCalendarRoute
   '/admin/deposit': typeof AdminDepositRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mail': typeof AdminMailRoute
@@ -273,6 +282,7 @@ export interface FileRouteTypes {
     | '/trade'
     | '/withdraw'
     | '/admin/audit'
+    | '/admin/calendar'
     | '/admin/deposit'
     | '/admin/login'
     | '/admin/mail'
@@ -301,6 +311,7 @@ export interface FileRouteTypes {
     | '/trade'
     | '/withdraw'
     | '/admin/audit'
+    | '/admin/calendar'
     | '/admin/deposit'
     | '/admin/login'
     | '/admin/mail'
@@ -329,6 +340,7 @@ export interface FileRouteTypes {
     | '/trade'
     | '/withdraw'
     | '/admin/audit'
+    | '/admin/calendar'
     | '/admin/deposit'
     | '/admin/login'
     | '/admin/mail'
@@ -358,6 +370,7 @@ export interface RootRouteChildren {
   TradeRoute: typeof TradeRoute
   WithdrawRoute: typeof WithdrawRoute
   AdminAuditRoute: typeof AdminAuditRoute
+  AdminCalendarRoute: typeof AdminCalendarRoute
   AdminDepositRoute: typeof AdminDepositRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminMailRoute: typeof AdminMailRoute
@@ -503,6 +516,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAuditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/calendar': {
+      id: '/admin/calendar'
+      path: '/admin/calendar'
+      fullPath: '/admin/calendar'
+      preLoaderRoute: typeof AdminCalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/deposit': {
       id: '/admin/deposit'
       path: '/admin/deposit'
@@ -574,6 +594,7 @@ const rootRouteChildren: RootRouteChildren = {
   TradeRoute: TradeRoute,
   WithdrawRoute: WithdrawRoute,
   AdminAuditRoute: AdminAuditRoute,
+  AdminCalendarRoute: AdminCalendarRoute,
   AdminDepositRoute: AdminDepositRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminMailRoute: AdminMailRoute,
