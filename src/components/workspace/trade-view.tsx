@@ -88,9 +88,14 @@ function computeFloatingPnl(
   return computeGuaranteedPositionPnl(pos, market?.bid, market?.tickStep, nowMs);
 }
 
-export function TradeView() {
+type TradeViewProps = {
+  mode?: "terminal" | "positions";
+  initialTab?: "Terbuka" | "Tertunda" | "Ditutup";
+};
+
+export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeViewProps) {
   const { session, updateSession } = useDemoSession();
-  const [balance, setBalance] = useState<number>(session.balance ?? 24510);
+  const [balance, setBalance] = useState<number>(session.balance ?? 0);
 
   const [markets, setMarkets] = useState<MarketInstrumentRecord[]>(FALLBACK_MARKETS);
   const [selectedSymbol, setSelectedSymbol] = useState("EURUSD");
@@ -113,7 +118,7 @@ export function TradeView() {
   const [tradingRules, setTradingRules] = useState<TradingRulesRecord>(DEFAULT_TRADING_RULES);
   const [todayOpenCount, setTodayOpenCount] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [bottomTab, setBottomTab] = useState<"Terbuka" | "Tertunda" | "Ditutup">("Terbuka");
+  const [bottomTab, setBottomTab] = useState<"Terbuka" | "Tertunda" | "Ditutup">(initialTab);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const [hoveredCandleIdx, setHoveredCandleIdx] = useState<number | null>(null);
@@ -619,6 +624,7 @@ export function TradeView() {
       {/* Live Account & Margin Bar */}
       <section
         aria-label="Ringkasan margin langsung"
+        hidden={mode === "positions"}
         className="rounded-xl border border-border bg-card p-4"
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2.5">
@@ -716,7 +722,9 @@ export function TradeView() {
       </section>
 
       {/* Instrument Selector Strip with Live Server Ticks */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      <div
+        className={mode === "positions" ? "hidden" : "flex items-center gap-2 overflow-x-auto pb-1"}
+      >
         {markets.map((market) => {
           const active = market.symbol === activeMarket.symbol;
           const upTick = market.bid >= market.prevBid;
@@ -768,7 +776,7 @@ export function TradeView() {
       </div>
 
       {/* Main Live Chart + Order Ticket */}
-      <div className="grid gap-6 xl:grid-cols-12">
+      <div className={mode === "positions" ? "hidden" : "grid gap-6 xl:grid-cols-12"}>
         {/* Candlestick / Area Chart */}
         <section className="rounded-xl border border-border bg-card p-5 sm:p-6 xl:col-span-8">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
@@ -948,14 +956,14 @@ export function TradeView() {
                       y1={y}
                       x2={chartGeometry.w - chartGeometry.padRight}
                       y2={y}
-                      stroke="oklch(0.24 0.006 260)"
+                      stroke="var(--border)"
                       strokeDasharray="3 3"
                       strokeWidth={1}
                     />
                     <text
                       x={chartGeometry.w - chartGeometry.padRight + 8}
                       y={y + 4}
-                      fill="oklch(0.68 0.008 260)"
+                      fill="var(--muted-foreground)"
                       fontSize="11"
                       fontFamily="monospace"
                     >
@@ -976,7 +984,7 @@ export function TradeView() {
                     x={cx}
                     y={chartGeometry.h - 10}
                     textAnchor="middle"
-                    fill="oklch(0.68 0.008 260)"
+                    fill="var(--muted-foreground)"
                     fontSize="10"
                     fontFamily="monospace"
                   >
@@ -1000,7 +1008,7 @@ export function TradeView() {
                     chartGeometry.slotW / 2
                   }
                   y2={chartGeometry.h - chartGeometry.padBottom}
-                  stroke="oklch(0.45 0.01 260)"
+                  stroke="var(--muted-foreground)"
                   strokeDasharray="3 3"
                   strokeWidth={1}
                 />
@@ -1016,7 +1024,7 @@ export function TradeView() {
                   const yOpen = chartGeometry.priceToY(c.open);
                   const yClose = chartGeometry.priceToY(c.close);
                   const isBull = c.close >= c.open;
-                  const color = isBull ? "oklch(0.82 0.23 148)" : "oklch(0.62 0.2 25)";
+                  const color = isBull ? "var(--primary)" : "var(--destructive)";
                   const rectTop = Math.min(yOpen, yClose);
                   const rectH = Math.max(2, Math.abs(yClose - yOpen));
 
@@ -1044,7 +1052,7 @@ export function TradeView() {
               ) : (
                 <polyline
                   fill="none"
-                  stroke="oklch(0.82 0.23 148)"
+                  stroke="var(--primary)"
                   strokeWidth={2}
                   points={chartGeometry.candles
                     .map((c, idx) => {
@@ -1074,18 +1082,14 @@ export function TradeView() {
                               y1={yEntry}
                               x2={chartGeometry.w - chartGeometry.padRight}
                               y2={yEntry}
-                              stroke={
-                                pos.side === "BUY" ? "oklch(0.82 0.23 148)" : "oklch(0.62 0.2 25)"
-                              }
+                              stroke={pos.side === "BUY" ? "var(--primary)" : "var(--destructive)"}
                               strokeDasharray="5 3"
                               strokeWidth={1}
                             />
                             <text
                               x={chartGeometry.padLeft + 6}
                               y={yEntry - 4}
-                              fill={
-                                pos.side === "BUY" ? "oklch(0.82 0.23 148)" : "oklch(0.62 0.2 25)"
-                              }
+                              fill={pos.side === "BUY" ? "var(--primary)" : "var(--destructive)"}
                               fontSize="10"
                               fontFamily="monospace"
                               fontWeight="bold"
@@ -1104,7 +1108,7 @@ export function TradeView() {
                             y1={chartGeometry.priceToY(slVal)}
                             x2={chartGeometry.w - chartGeometry.padRight}
                             y2={chartGeometry.priceToY(slVal)}
-                            stroke="oklch(0.62 0.2 25)"
+                            stroke="var(--destructive)"
                             strokeDasharray="2 3"
                             strokeWidth={1}
                           />
@@ -1118,7 +1122,7 @@ export function TradeView() {
                             y1={chartGeometry.priceToY(tpVal)}
                             x2={chartGeometry.w - chartGeometry.padRight}
                             y2={chartGeometry.priceToY(tpVal)}
-                            stroke="oklch(0.82 0.23 148)"
+                            stroke="var(--primary)"
                             strokeDasharray="2 3"
                             strokeWidth={1}
                           />
@@ -1131,7 +1135,7 @@ export function TradeView() {
               {(() => {
                 const yLive = chartGeometry.priceToY(activeMarket.bid);
                 const isUp = activeMarket.bid >= activeMarket.prevBid;
-                const tagColor = isUp ? "oklch(0.82 0.23 148)" : "oklch(0.62 0.2 25)";
+                const tagColor = isUp ? "var(--primary)" : "var(--destructive)";
                 return (
                   <g>
                     <line
@@ -1154,7 +1158,7 @@ export function TradeView() {
                     <text
                       x={chartGeometry.w - chartGeometry.padRight + 8}
                       y={yLive + 4}
-                      fill="oklch(0.13 0.02 150)"
+                      fill="var(--primary-foreground)"
                       fontSize="11"
                       fontWeight="bold"
                       fontFamily="monospace"
@@ -1472,20 +1476,21 @@ export function TradeView() {
 
       {/* Positions & Orders Table with Live P&L */}
       <section className="rounded-xl border border-border bg-card p-5 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-1">
+        <div className="flex flex-col items-stretch gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="grid w-full grid-cols-1 gap-1 rounded-lg border border-border bg-background p-1 sm:flex sm:w-auto">
             {(["Terbuka", "Tertunda", "Ditutup"] as const).map((tab) => {
               const count = positions.filter((p) => p.status === tab).length;
               return (
                 <button
                   key={tab}
                   type="button"
+                  aria-pressed={bottomTab === tab}
                   onClick={() => {
                     setBottomTab(tab);
                     positionsPagination.setPage(1);
                   }}
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
+                    "w-full rounded-md px-3 py-2 text-left text-xs font-semibold transition-colors sm:w-auto sm:whitespace-nowrap sm:py-1.5",
                     bottomTab === tab
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:text-foreground",
@@ -1501,7 +1506,7 @@ export function TradeView() {
               );
             })}
           </div>
-          <p className="font-mono text-xs tabular-nums text-muted-foreground">
+          <p className="text-xs leading-5 text-muted-foreground sm:max-w-sm sm:text-right">
             Posisi tertutup otomatis saat waktu minimal tahan selesai · Profit langsung masuk ke
             saldo.
           </p>
@@ -1509,7 +1514,9 @@ export function TradeView() {
 
         {displayedPositions.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            Belum ada data pada tab {bottomTab.toLowerCase()}. Gunakan tiket order untuk eksekusi.
+            {mode === "positions"
+              ? `Belum ada data pada tab ${bottomTab.toLowerCase()}.`
+              : `Belum ada data pada tab ${bottomTab.toLowerCase()}. Gunakan tiket order untuk eksekusi.`}
           </div>
         ) : (
           <div className="mt-4 overflow-x-auto">

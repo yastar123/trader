@@ -85,22 +85,34 @@ function createApiRouter() {
 
   api.post("/auth/login", async (req: Request, res: Response) => {
     const body = req.body as { email?: string; name?: string };
+    const email = body.email?.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Masukkan alamat email yang valid." });
+    }
     const session = await db.loginOrRegisterTrader({
-      email: body.email,
+      email,
       name: body.name,
       isRegister: false,
     });
-    res.json(session);
+    return res.json(session);
   });
 
   api.post("/auth/register", async (req: Request, res: Response) => {
     const body = req.body as { email?: string; name?: string };
+    const email = body.email?.trim().toLowerCase();
+    const name = body.name?.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Masukkan alamat email yang valid." });
+    }
+    if (!name) {
+      return res.status(400).json({ error: "Nama lengkap wajib diisi." });
+    }
     const session = await db.loginOrRegisterTrader({
-      email: body.email,
-      name: body.name,
+      email,
+      name,
       isRegister: true,
     });
-    res.status(201).json(session);
+    return res.status(201).json(session);
   });
 
   api.post("/auth/logout", async (_req: Request, res: Response) => {
@@ -137,6 +149,8 @@ function createApiRouter() {
   });
 
   api.post("/wallet/deposit", async (req: Request, res: Response) => {
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk mengajukan deposit." });
     const body = req.body as {
       amount?: number;
       amountIdr?: number;
@@ -146,6 +160,15 @@ function createApiRouter() {
       proofFileName?: string;
     };
     const limits = await db.getWalletLimits();
+    const method = body.method?.trim();
+    const reference = body.reference?.trim();
+    const depositMethods = await db.getDepositMethods(false);
+    if (!method || !depositMethods.some((item) => item.label === method)) {
+      return res.status(400).json({ error: "Pilih metode deposit aktif yang tersedia." });
+    }
+    if (!reference) {
+      return res.status(400).json({ error: "Nomor referensi transfer wajib diisi." });
+    }
     const hasAmountIdr = body.amountIdr !== undefined && body.amountIdr !== null;
     const rawIdr = hasAmountIdr ? Number(body.amountIdr) : Number.NaN;
     const amountUsd = hasAmountIdr
@@ -196,15 +219,18 @@ function createApiRouter() {
       amount: amountUsd,
       amountIdr,
       exchangeRate: USD_TO_IDR_RATE,
-      method: body.method?.trim() || "Transfer Bank BCA",
-      reference: body.reference?.trim() || `REF-${Math.floor(100000 + Math.random() * 900000)}`,
+      method,
+      reference,
       proofImage,
-      proofFileName: body.proofFileName?.trim() || "bukti-transfer.png",
+      proofFileName: body.proofFileName?.trim() || "",
     });
     return res.status(201).json(created);
   });
 
   api.post("/wallet/withdraw", async (req: Request, res: Response) => {
+    const userId = await db.getCurrentTraderId();
+    if (!userId)
+      return res.status(401).json({ error: "Silakan masuk untuk mengajukan penarikan." });
     const body = req.body as { amount?: number; destination?: string };
     const limits = await db.getWalletLimits();
     const amount = Number(body.amount);
@@ -224,9 +250,13 @@ function createApiRouter() {
         })} per transaksi.`,
       });
     }
+    const destination = body.destination?.trim();
+    if (!destination) {
+      return res.status(400).json({ error: "Rekening atau tujuan penarikan wajib diisi." });
+    }
     const result = await db.createWithdraw({
       amount,
-      destination: body.destination?.trim() || "Bank BCA · 5210948120",
+      destination,
     });
     if (result.error) {
       return res.status(400).json({ error: result.error });
@@ -301,8 +331,21 @@ function createApiRouter() {
 
   api.post("/journal", async (req: Request, res: Response) => {
     const body = req.body as Partial<JournalRecord>;
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk mencatat jurnal." });
+    if (
+      !body.symbol?.trim() ||
+      !body.entry?.trim() ||
+      !body.exit?.trim() ||
+      !Number.isFinite(Number(body.lot)) ||
+      Number(body.lot) <= 0 ||
+      !Number.isFinite(Number(body.pnl)) ||
+      !body.strategy
+    ) {
+      return res.status(400).json({ error: "Lengkapi instrumen, harga, lot, P&L, dan strategi." });
+    }
     const created = await db.createJournal(body);
-    res.status(201).json(created);
+    return res.status(201).json(created);
   });
 
   api.delete("/journal/:id", async (req: Request, res: Response) => {
@@ -327,7 +370,7 @@ function createApiRouter() {
       return res.status(400).json({ error: "Subjek dan isi pesan wajib diisi." });
     }
     const created = await db.createMessage(body, userId);
-    res.status(201).json(created);
+    return res.status(201).json(created);
   });
 
   api.patch("/messages/:id", async (req: Request, res: Response) => {
@@ -357,8 +400,13 @@ function createApiRouter() {
 
   api.post("/community", async (req: Request, res: Response) => {
     const body = req.body as Partial<CommunityPostRecord>;
+    const userId = await db.getCurrentTraderId();
+    if (!userId) return res.status(401).json({ error: "Silakan masuk untuk mempublikasikan ide." });
+    if (!body.pair?.trim() || !body.title?.trim() || !body.content?.trim()) {
+      return res.status(400).json({ error: "Instrumen, judul, dan isi ide wajib diisi." });
+    }
     const created = await db.createCommunityPost(body);
-    res.status(201).json(created);
+    return res.status(201).json(created);
   });
 
   api.post("/community/:id/like", async (req: Request, res: Response) => {
@@ -373,7 +421,10 @@ function createApiRouter() {
     const body = req.body as { author?: string; text?: string };
     const text = body.text?.trim();
     if (!text) return res.status(400).json({ error: "Komentar wajib diisi" });
-    const updated = await db.addCommunityComment(id, { author: body.author, text });
+    const updated = await db.addCommunityComment(
+      id,
+      body.author ? { author: body.author, text } : { text },
+    );
     if (!updated) return res.status(404).json({ error: "Post tidak ditemukan" });
     return res.status(201).json(updated);
   });

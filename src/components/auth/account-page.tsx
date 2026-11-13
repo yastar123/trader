@@ -14,18 +14,30 @@ export function AccountPage({ mode }: AccountPageProps) {
   const isRegister = mode === "register";
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("email") ?? "").trim();
     const fullName = String(formData.get("name") ?? "").trim();
-    await syncLoginWithExpress({
-      email: email || undefined,
-      name: fullName || (email ? email.split("@")[0] : undefined),
-      isRegister,
-    });
-    void navigate({ to: "/beranda" });
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await syncLoginWithExpress({
+        email: email || undefined,
+        name: fullName || (email ? email.split("@")[0] : undefined),
+        isRegister,
+      });
+      void navigate({ to: "/beranda" });
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Permintaan akun gagal. Silakan coba lagi.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -188,8 +200,17 @@ export function AccountPage({ mode }: AccountPageProps) {
               </label>
             )}
 
-            <Button type="submit" className="h-11 w-full text-sm font-bold">
-              {isRegister ? "Buat akun" : "Masuk"}
+            {submitError && (
+              <p
+                role="alert"
+                className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+              >
+                {submitError}
+              </p>
+            )}
+
+            <Button type="submit" disabled={submitting} className="h-11 w-full text-sm font-bold">
+              {submitting ? "Memproses..." : isRegister ? "Buat akun" : "Masuk"}
             </Button>
           </form>
 

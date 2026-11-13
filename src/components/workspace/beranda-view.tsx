@@ -37,122 +37,6 @@ import { readImageFileAsDataUrl } from "@/lib/image-upload";
 import { computeGuaranteedPositionPnl, resolvePositionStakeUsd } from "@/lib/trading";
 import { cn } from "@/lib/utils";
 
-type EquityPoint = {
-  label: string;
-  ekuitas: number;
-  saldo: number;
-};
-
-const equitySeriesByRange: Record<"1M" | "1B" | "3B" | "1T", EquityPoint[]> = {
-  "1M": [
-    { label: "Sen", ekuitas: 23940, saldo: 23800 },
-    { label: "Sel", ekuitas: 24120, saldo: 23950 },
-    { label: "Rab", ekuitas: 24010, saldo: 24050 },
-    { label: "Kam", ekuitas: 24480, saldo: 24210 },
-    { label: "Jum", ekuitas: 24850.4, saldo: 24510 },
-  ],
-  "1B": [
-    { label: "Mgg 1", ekuitas: 22100, saldo: 22000 },
-    { label: "Mgg 2", ekuitas: 22740, saldo: 22680 },
-    { label: "Mgg 3", ekuitas: 23490, saldo: 23310 },
-    { label: "Mgg 4", ekuitas: 24850.4, saldo: 24510 },
-  ],
-  "3B": [
-    { label: "Sep", ekuitas: 19800, saldo: 19800 },
-    { label: "Okt", ekuitas: 21950, saldo: 21700 },
-    { label: "Nov", ekuitas: 24850.4, saldo: 24510 },
-  ],
-  "1T": [
-    { label: "Jan", ekuitas: 15000, saldo: 15000 },
-    { label: "Mar", ekuitas: 16800, saldo: 16650 },
-    { label: "Mei", ekuitas: 18420, saldo: 18200 },
-    { label: "Jul", ekuitas: 19950, saldo: 19780 },
-    { label: "Sep", ekuitas: 21600, saldo: 21450 },
-    { label: "Nov", ekuitas: 24850.4, saldo: 24510 },
-  ],
-};
-
-const watchlistPairs = [
-  {
-    symbol: "EURUSD",
-    name: "Euro / Dolar AS",
-    bid: "1.08452",
-    ask: "1.08454",
-    spread: "0.2",
-    change: "+0.38%",
-    up: true,
-  },
-  {
-    symbol: "XAUUSD",
-    name: "Emas / Dolar AS",
-    bid: "2684.40",
-    ask: "2684.61",
-    spread: "2.1",
-    change: "+1.24%",
-    up: true,
-  },
-  {
-    symbol: "GBPUSD",
-    name: "Pound / Dolar AS",
-    bid: "1.29610",
-    ask: "1.29613",
-    spread: "0.3",
-    change: "-0.19%",
-    up: false,
-  },
-  {
-    symbol: "USDJPY",
-    name: "Dolar AS / Yen",
-    bid: "152.340",
-    ask: "152.343",
-    spread: "0.3",
-    change: "+0.52%",
-    up: true,
-  },
-  {
-    symbol: "BTCUSD",
-    name: "Bitcoin / Dolar AS",
-    bid: "88420.0",
-    ask: "88438.0",
-    spread: "18.0",
-    change: "+2.85%",
-    up: true,
-  },
-];
-
-const fallbackOpenPositions = [
-  {
-    id: "POS-9041",
-    symbol: "EURUSD",
-    side: "BUY",
-    lot: "$500.00",
-    entry: "1.08120",
-    current: "1.08452",
-    pnlUsd: 62.5,
-    up: true,
-  },
-  {
-    id: "POS-9044",
-    symbol: "XAUUSD",
-    side: "BUY",
-    lot: "$1,000.00",
-    entry: "2672.50",
-    current: "2684.40",
-    pnlUsd: 124.0,
-    up: true,
-  },
-  {
-    id: "POS-9045",
-    symbol: "BTCUSD",
-    side: "BUY",
-    lot: "$450.00",
-    entry: "88110.0",
-    current: "88420.0",
-    pnlUsd: 54.0,
-    up: true,
-  },
-];
-
 type RawPosition = {
   id: string;
   symbol: string;
@@ -179,18 +63,17 @@ type WalletTransactionsPayload = {
 
 export function BerandaView() {
   const { session } = useDemoSession();
-  const [positions, setPositions] = useState<RawPosition[] | null>(null);
+  const [positions, setPositions] = useState<RawPosition[]>([]);
   const [markets, setMarkets] = useState<MarketInstrumentRecord[]>([]);
-  const [range, setRange] = useState<"1M" | "1B" | "3B" | "1T">("1B");
   const [walletMode, setWalletMode] = useState<"deposit" | "withdraw">("deposit");
-  const [amountInput, setAmountInput] = useState("1700000");
-  const [methodInput, setMethodInput] = useState("Transfer Bank BCA");
+  const [amountInput, setAmountInput] = useState("");
+  const [methodInput, setMethodInput] = useState("");
   const [referenceInput, setReferenceInput] = useState("");
   const [proofImage, setProofImage] = useState("");
   const [proofFileName, setProofFileName] = useState("");
-  const [destinationInput, setDestinationInput] = useState("Bank BCA · 5210948120");
+  const [destinationInput, setDestinationInput] = useState("");
   const [walletData, setWalletData] = useState<WalletTransactionsPayload>({
-    balance: session.balance ?? 24510,
+    balance: session.balance ?? 0,
     deposits: [],
     withdrawals: [],
     limits: { minDeposit: 10, maxDeposit: 50000, minWithdraw: 10, maxWithdraw: 25000 },
@@ -200,6 +83,7 @@ export function BerandaView() {
     null,
   );
   const [submittingWallet, setSubmittingWallet] = useState(false);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   const loadWallet = useCallback(async () => {
     try {
@@ -211,11 +95,11 @@ export function BerandaView() {
       if (walletRes.ok) {
         const json = (await walletRes.json()) as WalletTransactionsPayload;
         setWalletData(json);
-        if (Array.isArray(json.depositMethods) && json.depositMethods.length > 0) {
+        if (Array.isArray(json.depositMethods)) {
           setMethodInput((prev) =>
             json.depositMethods!.some((m) => m.label === prev)
               ? prev
-              : json.depositMethods![0]!.label,
+              : (json.depositMethods![0]?.label ?? ""),
           );
         }
         saveDemoSession({ balance: json.balance });
@@ -228,8 +112,18 @@ export function BerandaView() {
         const mktData = (await mktRes.json()) as MarketInstrumentRecord[];
         if (Array.isArray(mktData)) setMarkets(mktData);
       }
-    } catch {
-      // Ignore transient load failures
+      const messagesRes = await fetch("/api/messages");
+      if (messagesRes.ok) {
+        const messages = (await messagesRes.json()) as { unread: boolean; archived: boolean }[];
+        setUnreadMessageCount(
+          messages.filter((message) => message.unread && !message.archived).length,
+        );
+      }
+    } catch (error) {
+      setWalletMessage({
+        type: "err",
+        text: error instanceof Error ? error.message : "Gagal memuat data beranda.",
+      });
     }
   }, []);
 
@@ -271,6 +165,13 @@ export function BerandaView() {
     const numericAmount = Number(amountInput);
 
     if (walletMode === "deposit") {
+      if (!walletData.depositMethods?.some((method) => method.label === methodInput)) {
+        setWalletMessage({
+          type: "err",
+          text: "Metode deposit belum dikonfigurasi oleh admin.",
+        });
+        return;
+      }
       const minIdr = Math.round(activeLimits.minDeposit * rate);
       const maxIdr = Math.round(activeLimits.maxDeposit * rate);
       const convertedUsd = Number((numericAmount / rate).toFixed(2));
@@ -354,7 +255,6 @@ export function BerandaView() {
     }
   }
 
-  const chartData = equitySeriesByRange[range];
   const rate = walletData.idrPerUsd ?? USD_TO_IDR_RATE;
   const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
   const liveBalance = walletData.balance;
@@ -366,7 +266,6 @@ export function BerandaView() {
   }, [markets]);
 
   const liveOpenPositions = useMemo(() => {
-    if (!positions) return fallbackOpenPositions;
     return positions
       .filter((p) => p.status === "Terbuka")
       .map((p) => {
@@ -392,19 +291,18 @@ export function BerandaView() {
   }, [positions, marketMap]);
 
   const totalFloatingPnl = useMemo(() => {
-    if (!positions) return 340.4;
     return liveOpenPositions.reduce((acc, cur) => acc + cur.pnlUsd, 0);
-  }, [positions, liveOpenPositions]);
+  }, [liveOpenPositions]);
 
   const totalUsedMargin = useMemo(() => {
-    if (!positions) return 1910.25;
     return liveOpenPositions.reduce(
       (acc, cur) => acc + ("posMargin" in cur ? cur.posMargin : 0),
       0,
     );
-  }, [positions, liveOpenPositions]);
+  }, [liveOpenPositions]);
 
   const liveEquity = liveBalance + totalFloatingPnl;
+  const chartData = [{ label: "Kini", ekuitas: liveEquity, saldo: liveBalance }];
   const freeMargin = Math.max(0, liveEquity - totalUsedMargin);
   const marginLevelPct = totalUsedMargin > 0 ? (liveEquity / totalUsedMargin) * 100 : 0;
 
@@ -553,23 +451,6 @@ export function BerandaView() {
                 Perbandingan ekuitas berjalan dan saldo terealisasi
               </p>
             </div>
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-1">
-              {(["1M", "1B", "3B", "1T"] as const).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRange(r)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
-                    range === r
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className="mt-6 h-72 w-full">
@@ -577,24 +458,20 @@ export function BerandaView() {
               <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="oklch(0.82 0.23 148)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="oklch(0.82 0.23 148)" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.24} />
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="oklch(0.24 0.006 260)"
-                  vertical={false}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis
                   dataKey="label"
-                  stroke="oklch(0.68 0.008 260)"
+                  stroke="var(--muted-foreground)"
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
                 />
                 <YAxis
-                  stroke="oklch(0.68 0.008 260)"
+                  stroke="var(--muted-foreground)"
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
@@ -607,8 +484,8 @@ export function BerandaView() {
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "oklch(0.135 0.005 260)",
-                    borderColor: "oklch(0.24 0.006 260)",
+                    backgroundColor: "var(--card)",
+                    borderColor: "var(--border)",
                     borderRadius: "8px",
                     fontSize: "12px",
                   }}
@@ -620,7 +497,7 @@ export function BerandaView() {
                 <Area
                   type="monotone"
                   dataKey="ekuitas"
-                  stroke="oklch(0.82 0.23 148)"
+                  stroke="var(--primary)"
                   strokeWidth={2}
                   fill="url(#equityGradient)"
                 />
@@ -646,37 +523,54 @@ export function BerandaView() {
           </div>
 
           <div className="mt-4 divide-y divide-border">
-            {watchlistPairs.map((pair) => (
-              <Link
-                key={pair.symbol}
-                to="/trade"
-                className="flex items-center justify-between gap-3 py-3 transition-colors hover:bg-accent/40"
-              >
-                <div className="min-w-0">
-                  <p className="font-display text-sm font-bold text-foreground">{pair.symbol}</p>
-                  <p className="truncate text-xs text-muted-foreground">{pair.name}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                    {pair.bid} / {pair.ask}
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-0.5 inline-flex items-center gap-1 font-mono text-xs font-medium tabular-nums",
-                      pair.up ? "text-primary" : "text-destructive",
-                    )}
+            {markets
+              .filter((market) => market.enabled)
+              .slice(0, 5)
+              .map((market) => {
+                const change = market.prevBid
+                  ? ((market.bid - market.prevBid) / market.prevBid) * 100
+                  : 0;
+                const changeLabel = `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
+                return (
+                  <Link
+                    key={market.symbol}
+                    to="/trade"
+                    className="flex items-center justify-between gap-3 py-3 transition-colors hover:bg-accent/40"
                   >
-                    {pair.up ? (
-                      <ArrowUpRight className="size-3" />
-                    ) : (
-                      <ArrowDownRight className="size-3" />
-                    )}
-                    <span>{pair.change}</span>
-                    <span className="text-muted-foreground">· Spread {pair.spread}</span>
-                  </p>
-                </div>
-              </Link>
-            ))}
+                    <div className="min-w-0">
+                      <p className="font-display text-sm font-bold text-foreground">
+                        {market.symbol}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">{market.name}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                        {market.bid.toFixed(market.decimals)} /{" "}
+                        {market.ask.toFixed(market.decimals)}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-0.5 inline-flex items-center gap-1 font-mono text-xs font-medium tabular-nums",
+                          change >= 0 ? "text-primary" : "text-destructive",
+                        )}
+                      >
+                        {change >= 0 ? (
+                          <ArrowUpRight className="size-3" />
+                        ) : (
+                          <ArrowDownRight className="size-3" />
+                        )}
+                        <span>{changeLabel}</span>
+                        <span className="text-muted-foreground">· Spread {market.spreadLabel}</span>
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })}
+            {markets.filter((market) => market.enabled).length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Data pasar belum tersedia.
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -763,18 +657,7 @@ export function BerandaView() {
               <CalendarDays className="size-4 text-primary" />
             </div>
             <div className="mt-4 space-y-3 text-sm">
-              <div className="border-b border-border/70 pb-3">
-                <p className="font-medium text-foreground">Rilis Data CPI Inti AS (YoY)</p>
-                <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
-                  Hari ini · 20:30 WIB · Dampak Tinggi
-                </p>
-              </div>
-              <div>
-                <p className="font-medium text-foreground">Webinar: Struktur Pasar XAUUSD</p>
-                <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
-                  Besok · 19:00 WIB · Menengah
-                </p>
-              </div>
+              <p className="text-sm text-muted-foreground">Belum ada agenda yang tersedia.</p>
             </div>
             <Link
               to="/kalender-akademi"
@@ -791,8 +674,9 @@ export function BerandaView() {
               <Mail className="size-4 text-primary" />
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              Anda memiliki 3 pesan baru termasuk konfirmasi penyesuaian margin & ringkasan
-              mingguan.
+              {unreadMessageCount > 0
+                ? `Anda memiliki ${unreadMessageCount} pesan belum dibaca.`
+                : "Tidak ada pesan baru."}
             </p>
             <Link
               to="/kotak-surat"
@@ -822,7 +706,7 @@ export function BerandaView() {
               type="button"
               onClick={() => {
                 setWalletMode("deposit");
-                setAmountInput("1700000");
+                setAmountInput("");
                 setWalletMessage(null);
               }}
               className={cn(
@@ -838,7 +722,7 @@ export function BerandaView() {
               type="button"
               onClick={() => {
                 setWalletMode("withdraw");
-                setAmountInput("250");
+                setAmountInput("");
                 setWalletMessage(null);
               }}
               className={cn(
@@ -926,14 +810,9 @@ export function BerandaView() {
                       ))}
                     </select>
                   ) : (
-                    <Input
-                      id="wallet-method"
-                      required
-                      value={methodInput}
-                      onChange={(e) => setMethodInput(e.target.value)}
-                      placeholder="Transfer Bank BCA / Mandiri / BNI / USDT"
-                      className="mt-1.5 h-10 bg-background"
-                    />
+                    <p className="mt-1.5 rounded-md border border-border p-3 text-xs text-muted-foreground">
+                      Metode pembayaran belum tersedia. Hubungi admin untuk konfigurasi.
+                    </p>
                   )}
                 </div>
                 <div>
@@ -1029,7 +908,9 @@ export function BerandaView() {
 
             <Button
               type="submit"
-              disabled={submittingWallet}
+              disabled={
+                submittingWallet || (walletMode === "deposit" && !walletData.depositMethods?.length)
+              }
               className="h-10 w-full bg-primary font-bold text-primary-foreground hover:bg-primary/90"
             >
               {submittingWallet

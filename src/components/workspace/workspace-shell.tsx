@@ -2,13 +2,16 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   ArrowDownToLine,
+  ArrowLeftRight,
   ArrowUpFromLine,
   BookOpenText,
   Building2,
+  ChartLine,
   CalendarDays,
   CandlestickChart,
   CircleHelp,
   ExternalLink,
+  History,
   LayoutDashboard,
   LogOut,
   Mail,
@@ -31,7 +34,7 @@ type NavItem = {
 };
 
 const primaryNav: NavItem[] = [
-  { label: "Beranda", to: "/beranda", icon: LayoutDashboard },
+  { label: "Live", to: "/beranda", icon: LayoutDashboard },
   { label: "Trade", to: "/trade", icon: CandlestickChart },
   { label: "Deposit", to: "/deposit", icon: ArrowDownToLine },
   { label: "Withdraw", to: "/withdraw", icon: ArrowUpFromLine },
@@ -45,6 +48,14 @@ const ecosystemNav: NavItem[] = [
   { label: "Panduan Pengguna", to: "/panduan-pengguna", icon: CircleHelp },
   { label: "Tentang", to: "/tentang", icon: Building2 },
   { label: "Pengaturan", to: "/pengaturan", icon: Settings },
+];
+
+const mobileNav: NavItem[] = [
+  { label: "Quote", to: "/trade", icon: CandlestickChart },
+  { label: "Chart", to: "/chart", icon: ChartLine },
+  { label: "Trade", to: "/posisi", icon: ArrowLeftRight },
+  { label: "Riwayat", to: "/riwayat", icon: History },
+  { label: "Pesan", to: "/kotak-surat", icon: Mail },
 ];
 
 type WorkspaceShellProps = {
@@ -61,7 +72,7 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
   const { session, updateSession } = useDemoSession();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
-  const headerBalance = formatMoneyPair(session.balance ?? 24510, displayCurrency);
+  const headerBalance = formatMoneyPair(session.balance ?? 0, displayCurrency);
 
   function handleLogout() {
     clearDemoSession();
@@ -360,7 +371,7 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 sm:px-6 md:pb-6 lg:px-8 lg:py-8">
           {children}
         </main>
 
@@ -381,6 +392,32 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
           </div>
         </footer>
       </div>
+
+      {session.loggedIn && (
+        <nav
+          aria-label="Navigasi mobile"
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur-md md:hidden"
+        >
+          {mobileNav.map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.to;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icon className={cn("size-5", isActive && "stroke-[2.5]")} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

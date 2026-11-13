@@ -13,15 +13,15 @@ export type DemoSession = {
 };
 
 export const DEFAULT_SESSION: DemoSession = {
-  name: "Raka Pratama",
-  email: "raka.pratama@ictrading.id",
-  accountId: "IC-884210",
+  name: "",
+  email: "",
+  accountId: "",
   accountType: "Raw Spread",
   currency: "USD",
   timezone: "Asia/Jakarta (WIB)",
   leverage: 500,
-  loggedIn: true,
-  balance: 24510,
+  loggedIn: false,
+  balance: 0,
 };
 
 let currentSession: DemoSession = { ...DEFAULT_SESSION };
@@ -40,7 +40,7 @@ export function saveDemoSession(partial: Partial<DemoSession>) {
     ...partial,
     name: partial.name?.trim() ? partial.name.trim() : currentSession.name,
     email: partial.email?.trim() ? partial.email.trim() : currentSession.email,
-    loggedIn: true,
+    loggedIn: currentSession.loggedIn,
   };
   notifyListeners();
 }
@@ -57,16 +57,17 @@ export async function syncLoginWithExpress(payload: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: payload.email, name: payload.name }),
     });
-    if (res.ok) {
-      const data = (await res.json()) as DemoSession;
-      currentSession = data;
-      notifyListeners();
-      return;
+    if (!res.ok) {
+      const result = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(result?.error ?? "Permintaan akun gagal. Silakan coba lagi.");
     }
-  } catch {
-    // Fallback to in-memory update if API unavailable
+    const data = (await res.json()) as DemoSession;
+    currentSession = data;
+    notifyListeners();
+  } catch (error) {
+    if (error instanceof Error && !(error instanceof TypeError)) throw error;
+    throw new Error("Tidak dapat terhubung ke server. Akun belum dibuat, silakan coba lagi.");
   }
-  saveDemoSession(payload);
 }
 
 export async function syncProfileWithExpress(partial: Partial<DemoSession>) {
@@ -88,7 +89,7 @@ export async function syncProfileWithExpress(partial: Partial<DemoSession>) {
 }
 
 export function clearDemoSession() {
-  currentSession = { ...DEFAULT_SESSION, loggedIn: false };
+  currentSession = { ...DEFAULT_SESSION };
   notifyListeners();
   void fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 }

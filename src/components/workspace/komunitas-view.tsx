@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowUpRight, MessageSquare, Send, ThumbsUp } from "lucide-react";
+import { MessageSquare, Send, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
@@ -23,68 +23,9 @@ type CommunityPost = {
   comments: { id: string; author: string; text: string; time: string }[];
 };
 
-const initialPosts: CommunityPost[] = [
-  {
-    id: "POST-1",
-    author: "Arif Wijaya",
-    pair: "XAUUSD",
-    bias: "Bullish",
-    category: "Analisis Teknikal",
-    timeAgo: "18 menit lalu",
-    title: "Struktur Ascending Channel H4 Menjelang Rilis CPI AS",
-    content:
-      "Selama harga bertahan di atas area permintaan 2665, peluang kelanjutan menuju 2705 tetap terbuka. Disarankan menunggu konfirmasi penutupan candle H1 setelah rilis data.",
-    likes: 24,
-    likedByMe: false,
-    comments: [
-      {
-        id: "CMT-1",
-        author: "Sinta Dewi",
-        text: "Setuju, area 2665 juga sejajar dengan Fibonacci 0.618 dari ayunan kemarin.",
-        time: "10 menit lalu",
-      },
-    ],
-  },
-  {
-    id: "POST-2",
-    author: "Kevin Hartono",
-    pair: "EURUSD",
-    bias: "Netral",
-    category: "Setup Trading",
-    timeAgo: "1 jam lalu",
-    title: "Rentang Konsolidasi 1.0800 - 1.0865 di Sesi Eropa",
-    content:
-      "Spread Raw terpantau sangat rapat pagi ini (0.0-0.1 pip). Fokus saya hanya mengambil breakout bersih dengan rasio risiko berbanding imbalan minimal 1:2.",
-    likes: 15,
-    likedByMe: true,
-    comments: [],
-  },
-  {
-    id: "POST-3",
-    author: "Nadia Kusuma",
-    pair: "GBPUSD",
-    bias: "Bearish",
-    category: "Diskusi Pasar",
-    timeAgo: "3 jam lalu",
-    title: "Tekanan Jual Pasca Data Pertumbuhan Inggris Q3",
-    content:
-      "Respons pasar terhadap angka PDB masih cenderung berhati-hati. Mengamati apakah area 1.2940 mampu menahan tekanan jual sebelum sesi New York dibuka.",
-    likes: 31,
-    likedByMe: false,
-    comments: [],
-  },
-];
-
-const contributors = [
-  { name: "Arif Wijaya", focus: "XAUUSD · EURUSD", ideas: 42, winRate: "68%" },
-  { name: "Nadia Kusuma", focus: "GBPUSD · Macro", ideas: 36, winRate: "64%" },
-  { name: "Kevin Hartono", focus: "Scalping FX", ideas: 29, winRate: "61%" },
-  { name: "Sinta Dewi", focus: "Swing Indeks", ideas: 21, winRate: "65%" },
-];
-
 export function KomunitasView() {
   const { session } = useDemoSession();
-  const [posts, setPosts] = useState<CommunityPost[]>(initialPosts);
+  const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [category, setCategory] = useState<"Semua" | CategoryType>("Semua");
   const [newTitle, setNewTitle] = useState("");
   const [newPair, setNewPair] = useState("EURUSD");
@@ -92,15 +33,21 @@ export function KomunitasView() {
   const [newCategory, setNewCategory] = useState<CategoryType>("Analisis Teknikal");
   const [newContent, setNewContent] = useState("");
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
-  const [openComments, setOpenComments] = useState<Record<string, boolean>>({ "POST-1": true });
+  const [openComments, setOpenComments] = useState<Record<string, boolean>>({});
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/community")
-      .then((res) => (res.ok ? (res.json() as Promise<CommunityPost[]>) : null))
-      .then((data) => {
-        if (Array.isArray(data)) setPosts(data);
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Gagal memuat komunitas.");
+        return (await res.json()) as CommunityPost[];
       })
-      .catch(() => {});
+      .then((data) => {
+        setPosts(data);
+      })
+      .catch((error: unknown) => {
+        setRequestError(error instanceof Error ? error.message : "Gagal memuat komunitas.");
+      });
   }, []);
 
   const filteredPosts = useMemo(
@@ -114,77 +61,64 @@ export function KomunitasView() {
     if (!newTitle.trim() || !newContent.trim()) return;
     const payload = {
       author: session.name,
-      pair: newPair.trim().toUpperCase() || "EURUSD",
+      pair: newPair.trim().toUpperCase(),
       bias: newBias,
       category: newCategory,
       title: newTitle.trim(),
       content: newContent.trim(),
     };
+    setRequestError(null);
     try {
       const res = await fetch("/api/community", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const created = (await res.json()) as CommunityPost;
-        setPosts((prev) => [created, ...prev]);
-        setNewTitle("");
-        setNewContent("");
-        return;
-      }
-    } catch {
-      // Fallback
+      if (!res.ok) throw new Error("Ide komunitas gagal dipublikasikan.");
+      const created = (await res.json()) as CommunityPost;
+      setPosts((prev) => [created, ...prev]);
+      setNewTitle("");
+      setNewContent("");
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "Ide komunitas gagal dipublikasikan.",
+      );
     }
-
-    const created: CommunityPost = {
-      id: `POST-${Date.now()}`,
-      ...payload,
-      timeAgo: "Baru saja",
-      likes: 1,
-      likedByMe: true,
-      comments: [],
-    };
-    setPosts((prev) => [created, ...prev]);
-    setNewTitle("");
-    setNewContent("");
   }
 
-  function toggleLike(id: string) {
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, likedByMe: !p.likedByMe, likes: p.likedByMe ? p.likes - 1 : p.likes + 1 }
-          : p,
-      ),
-    );
-    void fetch(`/api/community/${id}/like`, { method: "POST" }).catch(() => {});
+  async function toggleLike(id: string) {
+    setRequestError(null);
+    try {
+      const res = await fetch(`/api/community/${id}/like`, { method: "POST" });
+      if (!res.ok) throw new Error("Dukungan gagal disimpan.");
+      const refresh = await fetch("/api/community");
+      if (!refresh.ok) throw new Error("Gagal memperbarui daftar komunitas.");
+      setPosts((await refresh.json()) as CommunityPost[]);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Dukungan gagal disimpan.");
+    }
   }
 
-  function handleAddReply(postId: string, e: FormEvent) {
+  async function handleAddReply(postId: string, e: FormEvent) {
     e.preventDefault();
     const text = (replyDrafts[postId] ?? "").trim();
     if (!text) return;
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === postId
-          ? {
-              ...p,
-              comments: [
-                ...p.comments,
-                { id: `CMT-${Date.now()}`, author: session.name, text, time: "Baru saja" },
-              ],
-            }
-          : p,
-      ),
-    );
-    setReplyDrafts((prev) => ({ ...prev, [postId]: "" }));
-    setOpenComments((prev) => ({ ...prev, [postId]: true }));
-    void fetch(`/api/community/${postId}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ author: session.name, text }),
-    }).catch(() => {});
+    setRequestError(null);
+    try {
+      const res = await fetch(`/api/community/${postId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ author: session.name, text }),
+      });
+      if (!res.ok) throw new Error("Komentar gagal dikirim.");
+      const refresh = await fetch("/api/community");
+      if (!refresh.ok) throw new Error("Gagal memperbarui daftar komunitas.");
+      setPosts((await refresh.json()) as CommunityPost[]);
+      setReplyDrafts((prev) => ({ ...prev, [postId]: "" }));
+      setOpenComments((prev) => ({ ...prev, [postId]: true }));
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Komentar gagal dikirim.");
+    }
   }
 
   return (
@@ -198,6 +132,14 @@ export function KomunitasView() {
           trader wmTrader
         </p>
       </div>
+      {requestError && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          {requestError}
+        </p>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-12">
         {/* Main Feed */}
@@ -280,6 +222,11 @@ export function KomunitasView() {
 
           {/* Posts */}
           <div className="space-y-4">
+            {postsPagination.totalItems === 0 && (
+              <p className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+                Belum ada ide komunitas.
+              </p>
+            )}
             {postsPagination.paginatedItems.map((post) => {
               const showComments = Boolean(openComments[post.id]);
               return (
@@ -384,46 +331,12 @@ export function KomunitasView() {
         <aside className="space-y-6 lg:col-span-4">
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="font-display text-base font-bold">Sentimen Komunitas Hari Ini</h2>
-            <div className="mt-4 space-y-4 text-xs">
-              {[
-                { pair: "XAUUSD", buy: 72, sell: 28 },
-                { pair: "EURUSD", buy: 58, sell: 42 },
-                { pair: "GBPUSD", buy: 41, sell: 59 },
-              ].map((s) => (
-                <div key={s.pair} className="space-y-1.5">
-                  <div className="flex justify-between font-mono tabular-nums">
-                    <span className="font-bold text-foreground">{s.pair}</span>
-                    <span className="text-muted-foreground">
-                      Buy {s.buy}% / Sell {s.sell}%
-                    </span>
-                  </div>
-                  <div className="flex h-2 overflow-hidden rounded-full bg-destructive/70">
-                    <div className="bg-primary" style={{ width: `${s.buy}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="mt-4 text-sm text-muted-foreground">Statistik sentimen belum tersedia.</p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="font-display text-base font-bold">Kontributor Teraktif</h2>
-            <div className="mt-4 divide-y divide-border/70">
-              {contributors.map((c) => (
-                <div key={c.name} className="flex items-center justify-between gap-3 py-3 text-xs">
-                  <div>
-                    <p className="font-semibold text-foreground">{c.name}</p>
-                    <p className="text-muted-foreground">{c.focus}</p>
-                  </div>
-                  <div className="text-right font-mono tabular-nums">
-                    <p className="inline-flex items-center gap-0.5 font-bold text-primary">
-                      <ArrowUpRight className="size-3" />
-                      {c.winRate}
-                    </p>
-                    <p className="text-muted-foreground">{c.ideas} ide</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="mt-4 text-sm text-muted-foreground">Belum ada data kontributor.</p>
           </div>
         </aside>
       </div>

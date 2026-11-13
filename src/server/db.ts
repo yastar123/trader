@@ -72,31 +72,48 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
   const schemaSql = loadSchemaSql();
   await client.query(schemaSql);
 
-  for (const user of memoryStore.users) {
-    const isDefaultProfile = user.accountId === memoryStore.profile.accountId;
-    await client.query(
-      `INSERT INTO users (
-         id, account_id, name, email, account_type, currency, timezone, leverage,
-         balance, kyc_status, status, joined_at
-       )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (id) DO NOTHING`,
+  const demoAccountIds = ["IC-884210", "IC-884395", "IC-884512", "IC-884601"];
+  await client.query(
+    `UPDATE app_sessions
+     SET account_id = NULL, email = NULL, logged_in = FALSE, updated_at = NOW()
+     WHERE kind = 'trader' AND account_id = ANY($1::text[])`,
+    [demoAccountIds],
+  );
+  await client.query(
+    `DELETE FROM users
+     WHERE id = ANY($1::text[])
+        OR account_id = ANY($2::text[])
+        OR LOWER(email) = ANY($3::text[])`,
+    [
+      ["USR-01", "USR-02", "USR-03", "USR-04"],
+      demoAccountIds,
       [
-        user.id,
-        user.accountId,
-        user.name,
-        user.email,
-        user.accountType,
-        isDefaultProfile ? memoryStore.profile.currency : "USD",
-        isDefaultProfile ? memoryStore.profile.timezone : "Asia/Jakarta (WIB)",
-        isDefaultProfile ? memoryStore.profile.leverage : 500,
-        user.balance,
-        user.kycStatus,
-        user.status,
-        user.joinedAt,
+        "raka.pratama@ictrading.id",
+        "sinta.dewi@mail.id",
+        "kevin.h@trader.co.id",
+        "dimas.m@investasi.id",
       ],
-    );
-  }
+    ],
+  );
+  await client.query(`DELETE FROM journal_entries WHERE id = ANY($1::text[])`, [
+    ["JRN-412", "JRN-411", "JRN-410", "JRN-409", "JRN-408", "JRN-407"],
+  ]);
+  await client.query(`DELETE FROM inbox_messages WHERE id = ANY($1::text[])`, [
+    ["MSG-101", "MSG-102", "MSG-103", "MSG-104", "MSG-105", "MSG-106"],
+  ]);
+  await client.query(`DELETE FROM community_posts WHERE id = ANY($1::text[])`, [
+    ["POST-1", "POST-2", "POST-3", "POST-4", "POST-5"],
+  ]);
+  await client.query(`DELETE FROM audit_logs WHERE id = ANY($1::text[])`, [
+    ["AUD-101", "AUD-100", "AUD-099", "AUD-098", "AUD-097", "AUD-096"],
+  ]);
+  await client.query(
+    `DELETE FROM deposit_methods
+     WHERE (id = 'bca' AND account_info = '5210-8842-9012')
+        OR (id = 'mandiri' AND account_info = '137-000-9921-440')
+        OR (id = 'bni' AND account_info = '044-8192-3301')
+        OR (id = 'usdt' AND account_info = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE')`,
+  );
 
   for (const m of memoryStore.markets) {
     await client.query(
@@ -300,12 +317,14 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
     );
   }
 
-  await client.query(
-    `INSERT INTO app_sessions (id, kind, account_id, email, logged_in)
-     VALUES ('trader-active', 'trader', $1, $2, TRUE)
-     ON CONFLICT (id) DO NOTHING`,
-    [memoryStore.profile.accountId, memoryStore.profile.email],
-  );
+  if (memoryStore.profile.loggedIn && memoryStore.profile.accountId) {
+    await client.query(
+      `INSERT INTO app_sessions (id, kind, account_id, email, logged_in)
+       VALUES ('trader-active', 'trader', $1, $2, TRUE)
+       ON CONFLICT (id) DO NOTHING`,
+      [memoryStore.profile.accountId, memoryStore.profile.email],
+    );
+  }
 
   await client.query(
     `INSERT INTO wallet_limits (id, min_deposit, max_deposit, min_withdraw, max_withdraw, updated_by)
@@ -671,16 +690,19 @@ async function getActiveTraderRow(clientOrPool: Pool | PoolClient) {
   const sessRes = await clientOrPool.query(
     `SELECT account_id, logged_in FROM app_sessions WHERE id = 'trader-active' LIMIT 1`,
   );
-  const activeAccountId = String(sessRes.rows[0]?.account_id ?? memoryStore.profile.accountId);
-  const loggedIn = sessRes.rows[0] ? Boolean(sessRes.rows[0].logged_in) : true;
+  const sessionRow = sessRes.rows[0] as
+    { account_id?: string | null; logged_in?: boolean } | undefined;
+  const activeAccountId = sessionRow?.account_id;
+  const loggedIn = Boolean(sessionRow?.logged_in && activeAccountId);
+  if (!loggedIn || !activeAccountId) return { userRow: undefined, loggedIn: false };
 
-  let userRes = await clientOrPool.query(`SELECT * FROM users WHERE account_id = $1 LIMIT 1`, [
+  const userRes = await clientOrPool.query(`SELECT * FROM users WHERE account_id = $1 LIMIT 1`, [
     activeAccountId,
   ]);
-  if (userRes.rows.length === 0) {
-    userRes = await clientOrPool.query(`SELECT * FROM users ORDER BY created_at ASC LIMIT 1`);
-  }
-  return { userRow: userRes.rows[0] as Record<string, unknown> | undefined, loggedIn };
+  return {
+    userRow: userRes.rows[0] as Record<string, unknown> | undefined,
+    loggedIn: userRes.rows.length > 0,
+  };
 }
 
 function rowToSession(
@@ -1249,7 +1271,7 @@ export const db = {
     }
 
     const { userRow } = await getActiveTraderRow(pool);
-    const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
+    const accountId = String(userRow?.["account_id"] ?? memoryStore.profile.accountId);
     const countRes = await pool.query(
       `SELECT COUNT(*)::int AS cnt FROM positions WHERE account_id = $1 AND opened_date = $2`,
       [accountId, todayDate],
@@ -1466,7 +1488,7 @@ export const db = {
     }
 
     const { userRow } = await getActiveTraderRow(pool);
-    const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
+    const accountId = String(userRow?.["account_id"] ?? memoryStore.profile.accountId);
     const [depRes, wdRes] = await Promise.all([
       pool.query(`SELECT * FROM deposit_requests WHERE account_id = $1 ORDER BY created_at DESC`, [
         accountId,
@@ -1477,7 +1499,7 @@ export const db = {
     ]);
 
     return {
-      balance: Number(userRow?.balance ?? 0),
+      balance: Number(userRow?.["balance"] ?? 0),
       deposits: depRes.rows.map(mapDepositRow),
       withdrawals: wdRes.rows.map(mapWithdrawRow),
       limits,
@@ -1495,18 +1517,21 @@ export const db = {
     proofImage: string;
     proofFileName: string;
   }): Promise<DepositRequestRecord> {
+    const userId = await this.getCurrentTraderId();
+    if (!userId) throw new Error("Trader tidak ditemukan untuk permintaan deposit.");
     const exchangeRate = input.exchangeRate ?? USD_TO_IDR_RATE;
     const amountIdr = input.amountIdr ?? Math.round(input.amount * exchangeRate);
     if (!pgReady || !pool) {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
+      if (!currentUser) throw new Error("Trader tidak ditemukan untuk permintaan deposit.");
       const created: DepositRequestRecord = {
-        id: `DEP-${Math.floor(3050 + Math.random() * 900)}`,
-        userId: currentUser?.id ?? "USR-01",
-        userName: memoryStore.profile.name,
-        userEmail: memoryStore.profile.email,
-        accountId: memoryStore.profile.accountId,
+        id: `DEP-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userEmail: currentUser.email,
+        accountId: currentUser.accountId,
         method: input.method,
         reference: input.reference,
         amount: input.amount,
@@ -1523,12 +1548,13 @@ export const db = {
     }
 
     const { userRow } = await getActiveTraderRow(pool);
+    if (!userRow) throw new Error("Trader tidak ditemukan untuk permintaan deposit.");
     const created: DepositRequestRecord = {
-      id: `DEP-${Math.floor(3050 + Math.random() * 900)}`,
-      userId: String(userRow?.id ?? "USR-01"),
-      userName: String(userRow?.name ?? memoryStore.profile.name),
-      userEmail: String(userRow?.email ?? memoryStore.profile.email),
-      accountId: String(userRow?.account_id ?? memoryStore.profile.accountId),
+      id: `DEP-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+      userId: String(userRow["id"]),
+      userName: String(userRow["name"]),
+      userEmail: String(userRow["email"]),
+      accountId: String(userRow["account_id"]),
       method: input.method,
       reference: input.reference,
       amount: input.amount,
@@ -1576,15 +1602,16 @@ export const db = {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
-      if (currentUser && input.amount > currentUser.balance) {
+      if (!currentUser) return { error: "Trader tidak ditemukan untuk permintaan penarikan." };
+      if (input.amount > currentUser.balance) {
         return { error: "Saldo akun tidak mencukupi untuk penarikan ini." };
       }
       const created: WithdrawRequestRecord = {
-        id: `WD-${Math.floor(2100 + Math.random() * 900)}`,
-        userId: currentUser?.id ?? "USR-01",
-        userName: memoryStore.profile.name,
-        userEmail: memoryStore.profile.email,
-        accountId: memoryStore.profile.accountId,
+        id: `WD-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userEmail: currentUser.email,
+        accountId: currentUser.accountId,
         destination: input.destination,
         amount: input.amount,
         currency: "USD",
@@ -1596,16 +1623,17 @@ export const db = {
     }
 
     const { userRow } = await getActiveTraderRow(pool);
-    const balance = Number(userRow?.balance ?? 0);
-    if (userRow && input.amount > balance) {
+    if (!userRow) return { error: "Trader tidak ditemukan untuk permintaan penarikan." };
+    const balance = Number(userRow["balance"] ?? 0);
+    if (input.amount > balance) {
       return { error: "Saldo akun tidak mencukupi untuk penarikan ini." };
     }
     const created: WithdrawRequestRecord = {
-      id: `WD-${Math.floor(2100 + Math.random() * 900)}`,
-      userId: String(userRow?.id ?? "USR-01"),
-      userName: String(userRow?.name ?? memoryStore.profile.name),
-      userEmail: String(userRow?.email ?? memoryStore.profile.email),
-      accountId: String(userRow?.account_id ?? memoryStore.profile.accountId),
+      id: `WD-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+      userId: String(userRow["id"]),
+      userName: String(userRow["name"]),
+      userEmail: String(userRow["email"]),
+      accountId: String(userRow["account_id"]),
       destination: input.destination,
       amount: input.amount,
       currency: "USD",
@@ -1640,7 +1668,7 @@ export const db = {
       return memoryStore.positions.filter((p) => p.accountId === memoryStore.profile.accountId);
     }
     const { userRow } = await getActiveTraderRow(pool);
-    const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
+    const accountId = String(userRow?.["account_id"] ?? memoryStore.profile.accountId);
     const res = await pool.query(
       `SELECT * FROM positions WHERE account_id = $1 ORDER BY created_at DESC`,
       [accountId],
@@ -1654,8 +1682,10 @@ export const db = {
     error?: string;
     position?: TradePosition;
   }> {
-    const symbol = (body.symbol ?? "EURUSD").toUpperCase();
+    const symbol = body.symbol?.trim().toUpperCase();
+    if (!symbol) return { error: "Pilih instrumen sebelum membuat order." };
     const spec = memoryStore.markets.find((m) => m.symbol === symbol);
+    if (!spec || !spec.enabled) return { error: "Instrumen tidak tersedia." };
     const rules = await this.getTradingRules();
     const todayDate = getWibDateKey();
 
@@ -1670,7 +1700,7 @@ export const db = {
           ? Number((rawIdr / USD_TO_IDR_RATE).toFixed(2))
           : Number(body.lot) > 0
             ? Number((Number(body.lot) * 1000).toFixed(2))
-            : 100;
+            : Number.NaN;
 
     if (!Number.isFinite(stakeUsd) || stakeUsd < 1) {
       return { error: "Nominal posisi minimal $1.00 (Rp 17.000)." };
@@ -1681,11 +1711,24 @@ export const db = {
     const nowMs = Date.now();
     const openedAtMs = isLimit ? 0 : nowMs;
     const unlockAtMs = isLimit ? 0 : nowMs + rules.minCloseMinutes * 60_000;
+    const requestedEntry = Number(body.entry);
+    const entry =
+      Number.isFinite(requestedEntry) && requestedEntry > 0
+        ? requestedEntry
+        : isLimit
+          ? Number.NaN
+          : body.side === "SELL"
+            ? spec.bid
+            : spec.ask;
+    if (!Number.isFinite(entry) || entry <= 0) {
+      return { error: "Harga order wajib diisi dengan nilai yang valid." };
+    }
 
     if (!pgReady || !pool) {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
+      if (!currentUser) return { error: "Silakan masuk untuk membuat order." };
       const userPositions = memoryStore.positions.filter(
         (p) => p.accountId === memoryStore.profile.accountId,
       );
@@ -1710,13 +1753,11 @@ export const db = {
         50,
         Math.min(1000, Number(body.leverage) || memoryStore.profile.leverage || 500),
       );
-      const entry = Number(body.entry) || spec?.bid || 1.0845;
-
       const order: TradePosition = {
-        id: `ORD-${Math.floor(9050 + Math.random() * 900)}`,
-        userId: currentUser?.id ?? "USR-01",
-        userName: currentUser?.name ?? memoryStore.profile.name,
-        accountId: memoryStore.profile.accountId,
+        id: `ORD-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        accountId: currentUser.accountId,
         symbol,
         type: isLimit ? "Limit" : "Market",
         side: body.side === "SELL" ? "SELL" : "BUY",
@@ -1741,9 +1782,10 @@ export const db = {
     }
 
     const { userRow } = await getActiveTraderRow(pool);
-    const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
-    const userBalance = Number(userRow?.balance ?? 0);
-    const userLeverage = Number(userRow?.leverage ?? 500);
+    if (!userRow) return { error: "Silakan masuk untuk membuat order." };
+    const accountId = String(userRow["account_id"]);
+    const userBalance = Number(userRow["balance"] ?? 0);
+    const userLeverage = Number(userRow["leverage"] ?? 500);
 
     const [todayRes, activeRes] = await Promise.all([
       pool.query(
@@ -1771,12 +1813,10 @@ export const db = {
     }
 
     const leverage = Math.max(50, Math.min(1000, Number(body.leverage) || userLeverage || 500));
-    const entry = Number(body.entry) || spec?.bid || 1.0845;
-
     const order: TradePosition = {
-      id: `ORD-${Math.floor(9050 + Math.random() * 900)}`,
-      userId: String(userRow?.id ?? "USR-01"),
-      userName: String(userRow?.name ?? memoryStore.profile.name),
+      id: `ORD-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+      userId: String(userRow["id"]),
+      userName: String(userRow["name"]),
       accountId,
       symbol,
       type: isLimit ? "Limit" : "Market",
@@ -2008,19 +2048,33 @@ export const db = {
   },
 
   async createJournal(body: Partial<JournalRecord>): Promise<JournalRecord> {
+    const symbol = body.symbol?.trim();
+    const entry = body.entry?.trim();
+    const exit = body.exit?.trim();
+    if (
+      !symbol ||
+      !entry ||
+      !exit ||
+      !Number.isFinite(Number(body.lot)) ||
+      Number(body.lot) <= 0 ||
+      !Number.isFinite(Number(body.pnl)) ||
+      !body.strategy
+    ) {
+      throw new Error("Data jurnal tidak lengkap atau tidak valid.");
+    }
     const created: JournalRecord = {
-      id: `JRN-${Math.floor(415 + Math.random() * 500)}`,
-      date: body.date || "12 Nov 2026",
-      symbol: (body.symbol || "EURUSD").toUpperCase(),
+      id: `JRN-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+      date: body.date || new Date().toLocaleDateString("id-ID"),
+      symbol: symbol.toUpperCase(),
       side: body.side === "SELL" ? "SELL" : "BUY",
-      lot: Math.max(0.01, Number(body.lot) || 0.1),
-      entry: body.entry || "1.08200",
-      exit: body.exit || "1.08450",
-      pnl: Number(body.pnl) || 0,
+      lot: Number(body.lot),
+      entry,
+      exit,
+      pnl: Number(body.pnl),
       rr: Number(body.pnl) >= 0 ? "1:2.0" : "1:1.0",
-      strategy: body.strategy ?? "Pullback",
+      strategy: body.strategy,
       emotion: body.emotion || "Tercatat",
-      notes: body.notes || "Catatan transaksi baru.",
+      notes: body.notes ?? "",
     };
     if (!pgReady || !pool) {
       memoryStore.journal = [created, ...memoryStore.journal];
@@ -2066,7 +2120,7 @@ export const db = {
       );
     }
     const { userRow, loggedIn } = await getActiveTraderRow(pool);
-    return loggedIn && userRow ? String(userRow.id) : null;
+    return loggedIn && userRow ? String(userRow["id"]) : null;
   },
 
   async getMessages(): Promise<InboxMessage[]> {
@@ -2099,13 +2153,16 @@ export const db = {
     recipientUserId?: string,
   ): Promise<InboxMessage> {
     const targetUserId = recipientUserId ?? (await this.getCurrentTraderId());
+    const subject = body.subject?.trim();
+    const content = body.body?.trim();
+    if (!subject || !content) throw new Error("Subjek dan isi pesan wajib diisi.");
     const created: InboxMessage = {
       id: `MSG-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
       recipientUserId: targetUserId,
       sender: "Anda → Tim Dukungan wmTrader",
-      subject: body.subject?.trim() || "Pertanyaan Akun",
-      preview: (body.body?.trim() || "").slice(0, 90),
-      body: body.body?.trim() || "",
+      subject,
+      preview: content.slice(0, 90),
+      body: content,
       category: "Dukungan",
       timestamp: "Baru saja",
       unread: false,
@@ -2325,17 +2382,24 @@ export const db = {
 
   async createCommunityPost(body: Partial<CommunityPostRecord>): Promise<CommunityPostRecord> {
     const session = await this.getSession();
+    const author = session.name.trim();
+    const pair = body.pair?.trim();
+    const title = body.title?.trim();
+    const content = body.content?.trim();
+    if (!author || !pair || !title || !content) {
+      throw new Error("Instrumen, judul, isi, dan penulis ide wajib diisi.");
+    }
     const created: CommunityPostRecord = {
-      id: `POST-${Date.now()}`,
-      author: body.author || session.name,
-      pair: (body.pair || "EURUSD").toUpperCase(),
+      id: `POST-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+      author,
+      pair: pair.toUpperCase(),
       bias: body.bias ?? "Bullish",
       category: body.category ?? "Analisis Teknikal",
       timeAgo: "Baru saja",
-      title: body.title?.trim() || "Ide Analisis",
-      content: body.content?.trim() || "",
-      likes: 1,
-      likedByMe: true,
+      title,
+      content,
+      likes: 0,
+      likedByMe: false,
       comments: [],
     };
     if (!pgReady || !pool) {

@@ -27,53 +27,13 @@ import { saveDemoSession, useDemoSession } from "@/lib/fe-session";
 import { readImageFileAsDataUrl } from "@/lib/image-upload";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_DEPOSIT_METHODS: DepositMethodRecord[] = [
-  {
-    id: "bca",
-    label: "Transfer Bank BCA",
-    accountInfo: "5210-8842-9012",
-    accountHolder: "wmTrader",
-    eta: "5–15 menit setelah verifikasi admin",
-    fee: "Gratis (0%)",
-    enabled: true,
-  },
-  {
-    id: "mandiri",
-    label: "Transfer Bank Mandiri",
-    accountInfo: "137-000-9921-440",
-    accountHolder: "wmTrader",
-    eta: "5–15 menit setelah verifikasi admin",
-    fee: "Gratis (0%)",
-    enabled: true,
-  },
-  {
-    id: "bni",
-    label: "Transfer Bank BNI",
-    accountInfo: "044-8192-3301",
-    accountHolder: "wmTrader",
-    eta: "10–20 menit setelah verifikasi admin",
-    fee: "Gratis (0%)",
-    enabled: true,
-  },
-  {
-    id: "usdt",
-    label: "USDT (TRC20)",
-    accountInfo: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
-    accountHolder: "Dompet Kustodian TRC20",
-    eta: "Konfirmasi jaringan + verifikasi admin",
-    fee: "Biaya jaringan sesuai pengirim",
-    enabled: true,
-  },
-];
-
 const PRESET_IDR_AMOUNTS = [170_000, 850_000, 1_700_000, 4_250_000, 8_500_000, 17_000_000];
 
 export function DepositView() {
   const { session } = useDemoSession();
-  const [balance, setBalance] = useState<number>(session.balance ?? 24510);
+  const [balance, setBalance] = useState<number>(session.balance ?? 0);
   const [deposits, setDeposits] = useState<DepositRequestRecord[]>([]);
-  const [depositMethods, setDepositMethods] =
-    useState<DepositMethodRecord[]>(DEFAULT_DEPOSIT_METHODS);
+  const [depositMethods, setDepositMethods] = useState<DepositMethodRecord[]>([]);
   const [idrPerUsd, setIdrPerUsd] = useState<number>(USD_TO_IDR_RATE);
   const [limits, setLimits] = useState<WalletLimitsRecord>({
     minDeposit: 10,
@@ -84,8 +44,8 @@ export function DepositView() {
   const [loading, setLoading] = useState(true);
   const depositPagination = usePagination(deposits, 5);
 
-  const [selectedMethodId, setSelectedMethodId] = useState<string>("bni");
-  const [amountIdrInput, setAmountIdrInput] = useState<string>("1700000");
+  const [selectedMethodId, setSelectedMethodId] = useState<string>("");
+  const [amountIdrInput, setAmountIdrInput] = useState<string>("");
   const [referenceInput, setReferenceInput] = useState<string>("");
   const [proofImage, setProofImage] = useState<string>("");
   const [proofFileName, setProofFileName] = useState<string>("");
@@ -94,10 +54,7 @@ export function DepositView() {
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const activeMethod = useMemo(
-    () =>
-      depositMethods.find((m) => m.id === selectedMethodId) ??
-      depositMethods[0] ??
-      DEFAULT_DEPOSIT_METHODS[0]!,
+    () => depositMethods.find((m) => m.id === selectedMethodId),
     [depositMethods, selectedMethodId],
   );
 
@@ -126,14 +83,23 @@ export function DepositView() {
         if (typeof json.idrPerUsd === "number" && json.idrPerUsd > 0) {
           setIdrPerUsd(json.idrPerUsd);
         }
-        if (Array.isArray(json.depositMethods) && json.depositMethods.length > 0) {
+        if (Array.isArray(json.depositMethods)) {
           setDepositMethods(json.depositMethods);
           setSelectedMethodId((prev) =>
-            json.depositMethods!.some((m) => m.id === prev) ? prev : json.depositMethods![0]!.id,
+            json.depositMethods!.some((m) => m.id === prev)
+              ? prev
+              : (json.depositMethods![0]?.id ?? ""),
           );
         }
         saveDemoSession({ balance: json.balance });
+      } else {
+        setFeedback({ type: "err", text: "Gagal memuat data deposit." });
       }
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : "Gagal memuat data deposit.",
+      });
     } finally {
       setLoading(false);
     }
@@ -186,6 +152,10 @@ export function DepositView() {
       });
       return;
     }
+    if (!activeMethod) {
+      setFeedback({ type: "err", text: "Metode deposit belum dikonfigurasi oleh admin." });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -216,6 +186,11 @@ export function DepositView() {
         )}) berhasil dicatat dengan status Menunggu Verifikasi Admin.`,
       });
       await loadWallet();
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : "Gagal mengirim permintaan deposit.",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -302,37 +277,46 @@ export function DepositView() {
         <aside className="order-1 space-y-6 lg:order-2 lg:col-span-5">
           <div className="rounded-xl border border-border bg-card p-5 sm:p-6">
             <h2 className="font-display text-lg font-bold">Instruksi Transfer Tujuan</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Gunakan rincian di bawah untuk metode{" "}
-              <strong className="text-foreground">{activeMethod.label}</strong>.
-            </p>
-
-            <dl className="mt-5 divide-y divide-border text-sm">
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-muted-foreground">Metode</dt>
-                <dd className="text-right font-semibold text-foreground">{activeMethod.label}</dd>
-              </div>
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-muted-foreground">Nomor Rekening / Tujuan</dt>
-                <dd className="text-right font-mono text-xs font-bold text-primary sm:text-sm">
-                  {activeMethod.accountInfo}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-muted-foreground">Nama Penerima</dt>
-                <dd className="text-right font-medium text-foreground">
-                  {activeMethod.accountHolder}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-muted-foreground">Biaya Layanan</dt>
-                <dd className="text-right font-medium text-foreground">{activeMethod.fee}</dd>
-              </div>
-              <div className="flex justify-between gap-4 py-3">
-                <dt className="text-muted-foreground">Estimasi Proses</dt>
-                <dd className="text-right text-xs text-muted-foreground">{activeMethod.eta}</dd>
-              </div>
-            </dl>
+            {activeMethod ? (
+              <>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Gunakan rincian di bawah untuk metode{" "}
+                  <strong className="text-foreground">{activeMethod.label}</strong>.
+                </p>
+                <dl className="mt-5 divide-y divide-border text-sm">
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-muted-foreground">Metode</dt>
+                    <dd className="text-right font-semibold text-foreground">
+                      {activeMethod.label}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-muted-foreground">Nomor Rekening / Tujuan</dt>
+                    <dd className="text-right font-mono text-xs font-bold text-primary sm:text-sm">
+                      {activeMethod.accountInfo}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-muted-foreground">Nama Penerima</dt>
+                    <dd className="text-right font-medium text-foreground">
+                      {activeMethod.accountHolder}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-muted-foreground">Biaya Layanan</dt>
+                    <dd className="text-right font-medium text-foreground">{activeMethod.fee}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4 py-3">
+                    <dt className="text-muted-foreground">Estimasi Proses</dt>
+                    <dd className="text-right text-xs text-muted-foreground">{activeMethod.eta}</dd>
+                  </div>
+                </dl>
+              </>
+            ) : (
+              <p className="mt-4 text-sm text-muted-foreground">
+                Belum ada metode pembayaran aktif. Hubungi admin untuk konfigurasi.
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -369,7 +353,7 @@ export function DepositView() {
               <p className="text-xs font-medium text-foreground">1. Pilih Metode Pembayaran</p>
               <div className="mt-2 grid gap-2.5 sm:grid-cols-2">
                 {depositMethods.map((method) => {
-                  const selected = method.id === activeMethod.id;
+                  const selected = method.id === activeMethod?.id;
                   return (
                     <button
                       key={method.id}
@@ -388,6 +372,11 @@ export function DepositView() {
                   );
                 })}
               </div>
+              {depositMethods.length === 0 && (
+                <p className="mt-2 rounded-md border border-border p-3 text-xs text-muted-foreground">
+                  Metode pembayaran belum tersedia. Pengajuan deposit tidak dapat dilakukan.
+                </p>
+              )}
             </div>
 
             <div>
@@ -547,7 +536,7 @@ export function DepositView() {
 
             <Button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !activeMethod || loading}
               className="h-11 w-full bg-primary text-sm font-bold text-primary-foreground hover:bg-primary/90"
             >
               <ArrowDownToLine className="mr-2 size-4" />

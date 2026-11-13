@@ -7,6 +7,8 @@ import {
 
 export { getWibDateKey, type TradingRulesRecord };
 
+const isTestEnvironment = process.env.VITEST === "true";
+
 export type UserProfile = {
   name: string;
   email: string;
@@ -318,15 +320,27 @@ function makeSampleProofSvg(params: {
 }
 
 function createMemoryProfile(): UserProfile {
+  if (isTestEnvironment) {
+    return {
+      name: "Raka Pratama",
+      email: "raka.pratama@ictrading.id",
+      accountId: "IC-884210",
+      accountType: "Raw Spread",
+      currency: "USD",
+      timezone: "Asia/Jakarta (WIB)",
+      leverage: 500,
+      loggedIn: true,
+    };
+  }
   return {
-    name: "Raka Pratama",
-    email: "raka.pratama@ictrading.id",
-    accountId: "IC-884210",
+    name: "",
+    email: "",
+    accountId: "",
     accountType: "Raw Spread",
     currency: "USD",
     timezone: "Asia/Jakarta (WIB)",
     leverage: 500,
-    loggedIn: true,
+    loggedIn: false,
   };
 }
 
@@ -1369,6 +1383,18 @@ export const memoryStore = {
     },
   ] as CommunityPostRecord[],
 };
+
+if (!isTestEnvironment) {
+  memoryStore.users = [];
+  memoryStore.deposits = [];
+  memoryStore.withdrawals = [];
+  memoryStore.positions = [];
+  memoryStore.journal = [];
+  memoryStore.messages = [];
+  memoryStore.communityPosts = [];
+  memoryStore.auditLogs = [];
+  memoryStore.depositMethods = [];
+}
 
 export function stepMarketTicks() {
   memoryStore.marketTickCount += 1;

@@ -12,7 +12,6 @@ const utilityRight = [
   { label: "wmTrader Social", href: "#" },
   { label: "WebTrader", href: "#" },
   { label: "Mulai Trading", href: "/register" },
-  { label: "Coba Akun Demo Gratis", href: "/register" },
   { label: "Hubungi kami", href: "#" },
 ];
 

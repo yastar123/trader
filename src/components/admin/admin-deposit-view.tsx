@@ -515,7 +515,7 @@ export function AdminDepositView() {
                 onChange={(e) =>
                   setMethodForm((prev) => ({ ...prev, accountInfo: e.target.value }))
                 }
-                placeholder="Mis. 044-8192-3301"
+                placeholder="Nomor rekening atau alamat wallet"
                 className="mt-1 h-9 bg-background font-mono text-sm"
               />
             </div>

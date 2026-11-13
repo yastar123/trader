@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BerandaRouteImport } from './routes/beranda'
+import { Route as ChartRouteImport } from './routes/chart'
 import { Route as DepositRouteImport } from './routes/deposit'
 import { Route as JurnalRouteImport } from './routes/jurnal'
 import { Route as KalenderAkademiRouteImport } from './routes/kalender-akademi'
@@ -19,7 +20,9 @@ import { Route as KotakSuratRouteImport } from './routes/kotak-surat'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PanduanPenggunaRouteImport } from './routes/panduan-pengguna'
 import { Route as PengaturanRouteImport } from './routes/pengaturan'
+import { Route as PosisiRouteImport } from './routes/posisi'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as RiwayatRouteImport } from './routes/riwayat'
 import { Route as TentangRouteImport } from './routes/tentang'
 import { Route as TradeRouteImport } from './routes/trade'
 import { Route as WithdrawRouteImport } from './routes/withdraw'
@@ -41,6 +44,11 @@ const IndexRoute = IndexRouteImport.update({
 const BerandaRoute = BerandaRouteImport.update({
   id: '/beranda',
   path: '/beranda',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChartRoute = ChartRouteImport.update({
+  id: '/chart',
+  path: '/chart',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DepositRoute = DepositRouteImport.update({
@@ -83,9 +91,19 @@ const PengaturanRoute = PengaturanRouteImport.update({
   path: '/pengaturan',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PosisiRoute = PosisiRouteImport.update({
+  id: '/posisi',
+  path: '/posisi',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RiwayatRoute = RiwayatRouteImport.update({
+  id: '/riwayat',
+  path: '/riwayat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TentangRoute = TentangRouteImport.update({
@@ -152,6 +170,7 @@ const AdminWithdrawRoute = AdminWithdrawRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/beranda': typeof BerandaRoute
+  '/chart': typeof ChartRoute
   '/deposit': typeof DepositRoute
   '/jurnal': typeof JurnalRoute
   '/kalender-akademi': typeof KalenderAkademiRoute
@@ -160,7 +179,9 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/panduan-pengguna': typeof PanduanPenggunaRoute
   '/pengaturan': typeof PengaturanRoute
+  '/posisi': typeof PosisiRoute
   '/register': typeof RegisterRoute
+  '/riwayat': typeof RiwayatRoute
   '/tentang': typeof TentangRoute
   '/trade': typeof TradeRoute
   '/withdraw': typeof WithdrawRoute
@@ -177,6 +198,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/beranda': typeof BerandaRoute
+  '/chart': typeof ChartRoute
   '/deposit': typeof DepositRoute
   '/jurnal': typeof JurnalRoute
   '/kalender-akademi': typeof KalenderAkademiRoute
@@ -185,7 +207,9 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/panduan-pengguna': typeof PanduanPenggunaRoute
   '/pengaturan': typeof PengaturanRoute
+  '/posisi': typeof PosisiRoute
   '/register': typeof RegisterRoute
+  '/riwayat': typeof RiwayatRoute
   '/tentang': typeof TentangRoute
   '/trade': typeof TradeRoute
   '/withdraw': typeof WithdrawRoute
@@ -203,6 +227,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/beranda': typeof BerandaRoute
+  '/chart': typeof ChartRoute
   '/deposit': typeof DepositRoute
   '/jurnal': typeof JurnalRoute
   '/kalender-akademi': typeof KalenderAkademiRoute
@@ -211,7 +236,9 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/panduan-pengguna': typeof PanduanPenggunaRoute
   '/pengaturan': typeof PengaturanRoute
+  '/posisi': typeof PosisiRoute
   '/register': typeof RegisterRoute
+  '/riwayat': typeof RiwayatRoute
   '/tentang': typeof TentangRoute
   '/trade': typeof TradeRoute
   '/withdraw': typeof WithdrawRoute
@@ -230,6 +257,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/beranda'
+    | '/chart'
     | '/deposit'
     | '/jurnal'
     | '/kalender-akademi'
@@ -238,7 +266,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/panduan-pengguna'
     | '/pengaturan'
+    | '/posisi'
     | '/register'
+    | '/riwayat'
     | '/tentang'
     | '/trade'
     | '/withdraw'
@@ -255,6 +285,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/beranda'
+    | '/chart'
     | '/deposit'
     | '/jurnal'
     | '/kalender-akademi'
@@ -263,7 +294,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/panduan-pengguna'
     | '/pengaturan'
+    | '/posisi'
     | '/register'
+    | '/riwayat'
     | '/tentang'
     | '/trade'
     | '/withdraw'
@@ -280,6 +313,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/beranda'
+    | '/chart'
     | '/deposit'
     | '/jurnal'
     | '/kalender-akademi'
@@ -288,7 +322,9 @@ export interface FileRouteTypes {
     | '/login'
     | '/panduan-pengguna'
     | '/pengaturan'
+    | '/posisi'
     | '/register'
+    | '/riwayat'
     | '/tentang'
     | '/trade'
     | '/withdraw'
@@ -306,6 +342,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BerandaRoute: typeof BerandaRoute
+  ChartRoute: typeof ChartRoute
   DepositRoute: typeof DepositRoute
   JurnalRoute: typeof JurnalRoute
   KalenderAkademiRoute: typeof KalenderAkademiRoute
@@ -314,7 +351,9 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PanduanPenggunaRoute: typeof PanduanPenggunaRoute
   PengaturanRoute: typeof PengaturanRoute
+  PosisiRoute: typeof PosisiRoute
   RegisterRoute: typeof RegisterRoute
+  RiwayatRoute: typeof RiwayatRoute
   TentangRoute: typeof TentangRoute
   TradeRoute: typeof TradeRoute
   WithdrawRoute: typeof WithdrawRoute
@@ -343,6 +382,13 @@ declare module '@tanstack/react-router' {
       path: '/beranda'
       fullPath: '/beranda'
       preLoaderRoute: typeof BerandaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chart': {
+      id: '/chart'
+      path: '/chart'
+      fullPath: '/chart'
+      preLoaderRoute: typeof ChartRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/deposit': {
@@ -401,11 +447,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PengaturanRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/posisi': {
+      id: '/posisi'
+      path: '/posisi'
+      fullPath: '/posisi'
+      preLoaderRoute: typeof PosisiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/register': {
       id: '/register'
       path: '/register'
       fullPath: '/register'
       preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/riwayat': {
+      id: '/riwayat'
+      path: '/riwayat'
+      fullPath: '/riwayat'
+      preLoaderRoute: typeof RiwayatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tentang': {
@@ -498,6 +558,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BerandaRoute: BerandaRoute,
+  ChartRoute: ChartRoute,
   DepositRoute: DepositRoute,
   JurnalRoute: JurnalRoute,
   KalenderAkademiRoute: KalenderAkademiRoute,
@@ -506,7 +567,9 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PanduanPenggunaRoute: PanduanPenggunaRoute,
   PengaturanRoute: PengaturanRoute,
+  PosisiRoute: PosisiRoute,
   RegisterRoute: RegisterRoute,
+  RiwayatRoute: RiwayatRoute,
   TentangRoute: TentangRoute,
   TradeRoute: TradeRoute,
   WithdrawRoute: WithdrawRoute,

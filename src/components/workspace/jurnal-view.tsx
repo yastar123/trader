@@ -25,69 +25,10 @@ type JournalEntry = {
   notes: string;
 };
 
-const initialEntries: JournalEntry[] = [
-  {
-    id: "JRN-412",
-    date: "12 Nov 2026",
-    symbol: "EURUSD",
-    side: "BUY",
-    lot: 0.5,
-    entry: "1.08120",
-    exit: "1.08480",
-    pnl: 180.0,
-    rr: "1:2.4",
-    strategy: "Breakout",
-    emotion: "Disiplin",
-    notes: "Menembus resisten sesi London dengan volume konfirmasi. Keluar sesuai target TP.",
-  },
-  {
-    id: "JRN-411",
-    date: "11 Nov 2026",
-    symbol: "XAUUSD",
-    side: "BUY",
-    lot: 0.2,
-    entry: "2668.40",
-    exit: "2681.90",
-    pnl: 270.0,
-    rr: "1:3.0",
-    strategy: "Pullback",
-    emotion: "Tenang",
-    notes: "Retest area demand H1 setelah rilis data tenaga kerja AS.",
-  },
-  {
-    id: "JRN-410",
-    date: "10 Nov 2026",
-    symbol: "GBPUSD",
-    side: "SELL",
-    lot: 0.3,
-    entry: "1.29810",
-    exit: "1.30040",
-    pnl: -69.0,
-    rr: "1:1.0",
-    strategy: "Scalping",
-    emotion: "Terburu-buru",
-    notes: "Masuk sebelum penutupan candle M15. Perlu menunggu konfirmasi penuh.",
-  },
-  {
-    id: "JRN-409",
-    date: "08 Nov 2026",
-    symbol: "USDJPY",
-    side: "BUY",
-    lot: 0.4,
-    entry: "151.600",
-    exit: "152.280",
-    pnl: 178.5,
-    rr: "1:2.1",
-    strategy: "Swing",
-    emotion: "Disiplin",
-    notes: "Mengikuti tren naik harian setelah pantulan di rata-rata bergerak 20 hari.",
-  },
-];
-
 export function JurnalView() {
   const { session } = useDemoSession();
   const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
-  const [entries, setEntries] = useState<JournalEntry[]>(initialEntries);
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [resultFilter, setResultFilter] = useState<"Semua" | "Profit" | "Loss">("Semua");
   const [strategyFilter, setStrategyFilter] = useState<"Semua" | StrategyType>("Semua");
   const [search, setSearch] = useState("");
@@ -102,14 +43,20 @@ export function JurnalView() {
   const [pnl, setPnl] = useState("");
   const [strategy, setStrategy] = useState<StrategyType>("Pullback");
   const [notes, setNotes] = useState("");
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/journal")
-      .then((res) => (res.ok ? (res.json() as Promise<JournalEntry[]>) : null))
-      .then((data) => {
-        if (Array.isArray(data)) setEntries(data);
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Gagal memuat jurnal trading.");
+        return (await res.json()) as JournalEntry[];
       })
-      .catch(() => {});
+      .then((data) => {
+        setEntries(data);
+      })
+      .catch((error: unknown) => {
+        setRequestError(error instanceof Error ? error.message : "Gagal memuat jurnal trading.");
+      });
   }, []);
 
   const stats = useMemo(() => {
@@ -145,54 +92,55 @@ export function JurnalView() {
     const numericPnl = Number.parseFloat(pnl) || 0;
     const numericLot = Math.max(0.01, Number.parseFloat(lot) || 0.1);
     const payload = {
-      date: "12 Nov 2026",
+      date: new Date().toLocaleDateString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
       symbol: symbol.trim().toUpperCase() || "EURUSD",
       side,
       lot: numericLot,
-      entry: entryPrice.trim() || "1.08200",
-      exit: exitPrice.trim() || "1.08450",
+      entry: entryPrice.trim(),
+      exit: exitPrice.trim(),
       pnl: numericPnl,
       strategy,
       emotion: "Tercatat",
-      notes: notes.trim() || "Catatan transaksi baru.",
+      notes: notes.trim(),
     };
 
+    setRequestError(null);
     try {
       const res = await fetch("/api/journal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const created = (await res.json()) as JournalEntry;
-        setEntries((prev) => [created, ...prev]);
-        setShowForm(false);
-        setEntryPrice("");
-        setExitPrice("");
-        setPnl("");
-        setNotes("");
-        return;
+      if (!res.ok) {
+        const result = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(result?.error ?? "Catatan jurnal gagal disimpan.");
       }
-    } catch {
-      // Fallback
+      const created = (await res.json()) as JournalEntry;
+      setEntries((prev) => [created, ...prev]);
+      setShowForm(false);
+      setEntryPrice("");
+      setExitPrice("");
+      setPnl("");
+      setNotes("");
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Catatan jurnal gagal disimpan.");
     }
-
-    const created: JournalEntry = {
-      id: `JRN-${Math.floor(415 + Math.random() * 500)}`,
-      ...payload,
-      rr: numericPnl >= 0 ? "1:2.0" : "1:1.0",
-    };
-    setEntries((prev) => [created, ...prev]);
-    setShowForm(false);
-    setEntryPrice("");
-    setExitPrice("");
-    setPnl("");
-    setNotes("");
   }
 
   function handleDelete(id: string) {
-    setEntries((prev) => prev.filter((item) => item.id !== id));
-    void fetch(`/api/journal/${id}`, { method: "DELETE" }).catch(() => {});
+    setRequestError(null);
+    void fetch(`/api/journal/${id}`, { method: "DELETE" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Catatan jurnal gagal dihapus.");
+        setEntries((prev) => prev.filter((item) => item.id !== id));
+      })
+      .catch((error: unknown) => {
+        setRequestError(error instanceof Error ? error.message : "Catatan jurnal gagal dihapus.");
+      });
   }
 
   return (
@@ -206,6 +154,14 @@ export function JurnalView() {
             Catat eksekusi, evaluasi disiplin strategi, dan ukur rasio profitabilitas
           </p>
         </div>
+        {requestError && (
+          <p
+            role="alert"
+            className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          >
+            {requestError}
+          </p>
+        )}
         <Button type="button" onClick={() => setShowForm((v) => !v)} className="gap-2 font-bold">
           <Plus className="size-4" />
           <span>{showForm ? "Tutup Formulir" : "Catat Trading"}</span>

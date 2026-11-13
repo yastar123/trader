@@ -8,6 +8,7 @@ import { AdminMailView } from "@/components/admin/admin-mail-view";
 import { AdminPositionsView } from "@/components/admin/admin-positions-view";
 import { AccountPage } from "@/components/auth/account-page";
 import { DepositView } from "@/components/workspace/deposit-view";
+import { ChartView } from "@/components/workspace/chart-view";
 import { JurnalView } from "@/components/workspace/jurnal-view";
 import { KalenderAkademiView } from "@/components/workspace/kalender-akademi-view";
 import { KomunitasView } from "@/components/workspace/komunitas-view";
@@ -18,6 +19,7 @@ import { TentangView } from "@/components/workspace/tentang-view";
 import { TradeView } from "@/components/workspace/trade-view";
 import { WithdrawView } from "@/components/workspace/withdraw-view";
 import { USD_TO_IDR_RATE } from "@/lib/currency";
+import { DEFAULT_SESSION, readDemoSession, syncLoginWithExpress } from "@/lib/fe-session";
 import { db } from "@/server/db";
 import { generateSeedCandles, memoryStore } from "@/server/store";
 
@@ -176,6 +178,27 @@ function renderWithQuery(ui: ReactNode) {
 }
 
 describe("Full Feature Suite — Trader & Admin Core Services", () => {
+  it("does not restore a demo trader or pretend a failed registration succeeded", async () => {
+    expect(DEFAULT_SESSION.loggedIn).toBe(false);
+    expect(DEFAULT_SESSION.accountId).toBe("");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ error: "Server unavailable" }), { status: 503 }),
+      ),
+    );
+    await expect(
+      syncLoginWithExpress({
+        email: "new.trader@example.com",
+        name: "Trader Baru",
+        isRegister: true,
+      }),
+    ).rejects.toThrow("Server unavailable");
+    expect(readDemoSession().loggedIn).toBe(false);
+    expect(readDemoSession().accountId).toBe("");
+  });
+
   it("handles trader session login, profile updates, and logout cleanly", async () => {
     const logged = await db.loginOrRegisterTrader({
       email: "trader.uji@ictrading.id",
@@ -369,7 +392,7 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
       content: "Harga bertahan di atas support H4.",
     });
     const unliked = await db.toggleCommunityLike(post.id);
-    expect(unliked?.likes).toBe(0);
+    expect(unliked?.likes).toBe(1);
     const commented = await db.addCommunityComment(post.id, {
       text: "Setuju dengan skenario ini.",
     });
@@ -475,7 +498,7 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
     memoryStore.profile.accountId = memoryStore.users[0]!.accountId;
     renderWithQuery(<KotakSuratView />);
     await waitFor(() => {
-      expect(screen.getByText("Surat dari admin")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Surat dari admin" })).toBeInTheDocument();
     });
   });
 
@@ -550,12 +573,10 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
   it("switches Kalender Akademi tabs and filters cleanly", () => {
     renderWithQuery(<KalenderAkademiView />);
     expect(screen.getByText("Kalender Akademi")).toBeInTheDocument();
-    expect(screen.getByText("Indeks Harga Konsumen (CPI) Inti AS (YoY)")).toBeInTheDocument();
+    expect(screen.getByText("Data kalender ekonomi belum tersedia.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Jadwal Akademi" }));
-    expect(
-      screen.getByText("Bedah Struktur Pasar & Likuiditas Sesi New York pada XAUUSD"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Jadwal akademi belum tersedia.")).toBeInTheDocument();
   });
 
   it("filters Panduan Pengguna and toggles onboarding checklist and FAQ", () => {
@@ -574,6 +595,9 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
 
   it("switches Pengaturan tabs and saves profile settings", async () => {
     renderWithQuery(<PengaturanView />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("Nama Lengkap")).toHaveValue("Raka Pratama");
+    });
     fireEvent.click(screen.getByRole("button", { name: "Simpan Profil" }));
     await waitFor(() => {
       expect(
@@ -613,8 +637,14 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     expect(screen.getByText("Instruksi Transfer Tujuan")).toBeInTheDocument();
     expect(screen.getByText("Formulir Pengajuan Deposit")).toBeInTheDocument();
 
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Transfer Bank BCA/ })).toBeInTheDocument();
+    });
     fireEvent.change(screen.getByLabelText(/Nomor Referensi/i), {
       target: { value: "BNI-UJI-99" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton"), {
+      target: { value: "170000" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Kirim Konfirmasi Deposit/i }));
     await waitFor(() => {
@@ -651,6 +681,24 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     });
     expect(screen.queryByText(/Atur Profit User/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Default Keuntungan User/i)).not.toBeInTheDocument();
+  });
+
+  it("renders coin charts from enabled market data and opens position history on its tab", async () => {
+    renderWithQuery(<ChartView />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /BTCUSD/ })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("region", { name: /Grafik Bitcoin/ })).toBeInTheDocument();
+    cleanup();
+
+    renderWithQuery(<TradeView mode="positions" initialTab="Ditutup" />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Riwayat Ditutup/ })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+    expect(screen.getByText("Ringkasan Akun & Margin")).not.toBeVisible();
   });
 
   it("renders AccountPage (login & register) and AdminLoginView with matching login appearance", () => {

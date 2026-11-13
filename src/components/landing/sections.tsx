@@ -198,12 +198,6 @@ export function StrengthSection() {
             >
               Mulai Trading
             </a>
-            <a
-              href="#mulai"
-              className="rounded-md border border-input px-6 py-3 text-sm font-semibold transition-colors hover:bg-accent"
-            >
-              Coba Demo Gratis
-            </a>
           </div>
         </div>
       </div>
@@ -358,12 +352,6 @@ export function GoldSection() {
                 className="rounded-md bg-primary px-6 py-3 text-sm font-bold text-primary-foreground transition-transform hover:scale-[1.03]"
               >
                 Trading Spot Emas
-              </a>
-              <a
-                href="#mulai"
-                className="rounded-md border border-input px-6 py-3 text-sm font-semibold transition-colors hover:bg-accent"
-              >
-                Coba Demo Gratis
               </a>
             </div>
           </div>

@@ -28,94 +28,8 @@ type AcademySession = {
   description: string;
 };
 
-const economicEvents: EconomicEvent[] = [
-  {
-    id: "ECO-1",
-    time: "14:00 WIB",
-    currency: "GBP",
-    title: "PDB Inggris (QoQ) Q3",
-    impact: "Sedang",
-    actual: "0.2%",
-    forecast: "0.2%",
-    previous: "0.5%",
-  },
-  {
-    id: "ECO-2",
-    time: "17:00 WIB",
-    currency: "EUR",
-    title: "Survei Sentimen Ekonomi ZEW Jerman",
-    impact: "Sedang",
-    actual: "-",
-    forecast: "13.2",
-    previous: "13.1",
-  },
-  {
-    id: "ECO-3",
-    time: "20:30 WIB",
-    currency: "USD",
-    title: "Indeks Harga Konsumen (CPI) Inti AS (YoY)",
-    impact: "Tinggi",
-    actual: "-",
-    forecast: "3.3%",
-    previous: "3.3%",
-  },
-  {
-    id: "ECO-4",
-    time: "20:30 WIB",
-    currency: "USD",
-    title: "Klaim Pengangguran Awal Mingguan AS",
-    impact: "Tinggi",
-    actual: "-",
-    forecast: "221K",
-    previous: "221K",
-  },
-  {
-    id: "ECO-5",
-    time: "06:50 WIB",
-    currency: "JPY",
-    title: "Indeks Harga Produsen (PPI) Jepang (YoY)",
-    impact: "Rendah",
-    actual: "-",
-    forecast: "2.9%",
-    previous: "2.8%",
-  },
-];
-
-const academySessions: AcademySession[] = [
-  {
-    id: "ACD-1",
-    date: "13 Nov 2026",
-    time: "19:00 WIB",
-    title: "Bedah Struktur Pasar & Likuiditas Sesi New York pada XAUUSD",
-    mentor: "Dimas Mahendra · Analis Senior",
-    level: "Menengah",
-    format: "Webinar Langsung · 90 Menit",
-    description:
-      "Memetakan area likuiditas institusional sebelum rilis berita ekonomi utama dan mengelola risiko saat volatilitas tinggi.",
-  },
-  {
-    id: "ACD-2",
-    date: "15 Nov 2026",
-    time: "10:00 WIB",
-    title: "Fondasi Manajemen Risiko & Kalkulasi Ukuran Posisi Lot Mikro",
-    mentor: "Nadia Kusuma · Edukator Trading",
-    level: "Pemula",
-    format: "Kelas Interaktif · 60 Menit",
-    description:
-      "Menghitung risiko maksimal 1% per transaksi, menentukan jarak Stop Loss rasional, dan menjaga kurva ekuitas tetap sehat.",
-  },
-  {
-    id: "ACD-3",
-    date: "18 Nov 2026",
-    time: "20:00 WIB",
-    title: "Otomasi Strategi & Pengujian Backtest di Platform cTrader",
-    mentor: "Bagus Santoso · Spesialis Kuantitatif",
-    level: "Lanjutan",
-    format: "Lokakarya Teknis · 90 Menit",
-    description:
-      "Menyusun aturan masuk/keluar mekanis, membaca metrik drawdown, dan menghindari overfitting pada data historis.",
-  },
-];
+const economicEvents: EconomicEvent[] = [];
+const academySessions: AcademySession[] = [];
 
 export function KalenderAkademiView() {
   const [activeTab, setActiveTab] = useState<"Kalender Ekonomi" | "Jadwal Akademi">(
@@ -128,8 +42,8 @@ export function KalenderAkademiView() {
   const [levelFilter, setLevelFilter] = useState<"Semua" | "Pemula" | "Menengah" | "Lanjutan">(
     "Semua",
   );
-  const [reminders, setReminders] = useState<string[]>(["ECO-3"]);
-  const [enrolled, setEnrolled] = useState<string[]>(["ACD-1"]);
+  const [reminders, setReminders] = useState<string[]>([]);
+  const [enrolled, setEnrolled] = useState<string[]>([]);
 
   const filteredEvents = useMemo(() => {
     return economicEvents.filter((ev) => {
@@ -241,6 +155,13 @@ export function KalenderAkademiView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/70">
+                  {eventsPagination.totalItems === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                        Data kalender ekonomi belum tersedia.
+                      </td>
+                    </tr>
+                  )}
                   {eventsPagination.paginatedItems.map((ev) => {
                     const isReminded = reminders.includes(ev.id);
                     return (
@@ -324,6 +245,11 @@ export function KalenderAkademiView() {
           </div>
 
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {academyPagination.totalItems === 0 && (
+              <p className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground md:col-span-2 lg:col-span-3">
+                Jadwal akademi belum tersedia.
+              </p>
+            )}
             {academyPagination.paginatedItems.map((session) => {
               const isJoined = enrolled.includes(session.id);
               return (

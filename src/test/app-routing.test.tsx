@@ -26,6 +26,9 @@ describe("App routing", () => {
   it.each([
     "/beranda",
     "/trade",
+    "/chart",
+    "/posisi",
+    "/riwayat",
     "/deposit",
     "/withdraw",
     "/kotak-surat",

@@ -26,7 +26,7 @@ const PRESET_WITHDRAW = [100, 250, 500, 1000];
 
 export function WithdrawView() {
   const { session } = useDemoSession();
-  const [balance, setBalance] = useState<number>(session.balance ?? 24510);
+  const [balance, setBalance] = useState<number>(session.balance ?? 0);
   const [withdrawals, setWithdrawals] = useState<WithdrawRequestRecord[]>([]);
   const [limits, setLimits] = useState<WalletLimitsRecord>({
     minDeposit: 10,
@@ -38,8 +38,8 @@ export function WithdrawView() {
   const withdrawPagination = usePagination(withdrawals, 5);
 
   const [channel, setChannel] = useState("Bank BCA");
-  const [accountNumber, setAccountNumber] = useState("5210948120");
-  const [amountInput, setAmountInput] = useState("250");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [amountInput, setAmountInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -56,7 +56,14 @@ export function WithdrawView() {
         setWithdrawals(json.withdrawals);
         if (json.limits) setLimits(json.limits);
         saveDemoSession({ balance: json.balance });
+      } else {
+        setFeedback({ type: "err", text: "Gagal memuat data penarikan." });
       }
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : "Gagal memuat data penarikan.",
+      });
     } finally {
       setLoading(false);
     }
@@ -139,6 +146,11 @@ export function WithdrawView() {
         })} dikirim dan menunggu verifikasi manual oleh admin.`,
       });
       await loadWallet();
+    } catch (error) {
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : "Gagal mengajukan penarikan dana.",
+      });
     } finally {
       setSubmitting(false);
     }

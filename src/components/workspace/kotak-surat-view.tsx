@@ -20,71 +20,29 @@ type MailItem = {
   archived: boolean;
 };
 
-const initialMessages: MailItem[] = [
-  {
-    id: "MSG-101",
-    sender: "Tim Likuiditas wmTrader",
-    subject: "Pemberitahuan Jadwal Rilis Inflasi AS & Potensi Pelebaran Spread",
-    preview: "Rilis CPI AS dijadwalkan pukul 20:30 WIB. Pastikan level margin Anda memadai.",
-    body: "Halo Trader,\n\nSebagai bagian dari manajemen risiko menjelang rilis data Indeks Harga Konsumen (CPI) AS pada pukul 20:30 WIB hari ini, likuiditas antarbank pada pasangan USD dan XAUUSD dapat mengalami volatilitas tinggi sesaat.\n\nPastikan posisi terbuka Anda memiliki Stop Loss yang sesuai serta margin bebas yang memadai untuk mengantisipasi lonjakan harga.",
-    category: "Peringatan Pasar",
-    timestamp: "14:20 WIB",
-    unread: true,
-    archived: false,
-  },
-  {
-    id: "MSG-102",
-    sender: "Tim Kepatuhan & Akun wmTrader",
-    subject: "Laporan Ringkasan Eksekusi Mingguan Akun Raw Spread",
-    preview: "Rata-rata kecepatan eksekusi akun Anda minggu ini tercatat 34 ms tanpa requotes.",
-    body: "Laporan ringkasan eksekusi periode mingguan untuk akun #IC-884210 telah tersedia.\n\nTotal lot ditransaksikan: 4.85 lot\nRata-rata kecepatan eksekusi: 34 milidetik\nSpread rata-rata EURUSD: 0.12 pip\n\nAnda dapat meninjau rincian per transaksi di menu Jurnal Trading.",
-    category: "Sistem & Akun",
-    timestamp: "Kemarin, 18:05",
-    unread: true,
-    archived: false,
-  },
-  {
-    id: "MSG-103",
-    sender: "Akademi wmTrader",
-    subject: "Konfirmasi Pendaftaran: Bedah Struktur Pasar Emas (XAUUSD)",
-    preview:
-      "Kursi Anda untuk sesi webinar besok malam telah tercatat. Tautan ruang siaran aktif 15 menit sebelum mulai.",
-    body: "Terima kasih telah mendaftar pada sesi webinar interaktif bersama analis senior kami.\n\nTopik: Struktur Pasar & Likuiditas Sesi New York untuk XAUUSD\nWaktu: Besok, 19:00 - 20:30 WIB\n\nSilakan siapkan catatan pertanyaan Anda di menu Komunitas atau Kalender Akademi.",
-    category: "Dukungan",
-    timestamp: "10 Nov, 09:40",
-    unread: true,
-    archived: false,
-  },
-  {
-    id: "MSG-104",
-    sender: "Infrastruktur Server wmTrader",
-    subject: "Pemeliharaan Terjadwal Server NY4 Akhir Pekan",
-    preview: "Pemeliharaan rutin dilakukan Sabtu pukul 15:00 - 17:00 WIB saat pasar tutup.",
-    body: "Untuk menjaga latensi rendah dan kestabilan koneksi cTrader serta MetaTrader, kami menjadwalkan pemeliharaan rutin pada akhir pekan saat pasar tutup.\n\nTidak ada tindakan yang diperlukan dari pihak Anda.",
-    category: "Sistem & Akun",
-    timestamp: "08 Nov, 11:12",
-    unread: false,
-    archived: false,
-  },
-];
-
 export function KotakSuratView() {
-  const [messages, setMessages] = useState<MailItem[]>(initialMessages);
+  const [messages, setMessages] = useState<MailItem[]>([]);
   const [filter, setFilter] = useState<"Semua" | "Belum Dibaca" | "Arsip">("Semua");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string>("MSG-101");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [composing, setComposing] = useState(false);
   const [newSubject, setNewSubject] = useState("");
   const [newBody, setNewBody] = useState("");
   const [sentNotice, setSentNotice] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/messages")
-      .then((res) => (res.ok ? (res.json() as Promise<MailItem[]>) : null))
-      .then((data) => {
-        if (Array.isArray(data)) setMessages(data);
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Gagal memuat kotak surat.");
+        return (await res.json()) as MailItem[];
       })
-      .catch(() => {});
+      .then((data) => {
+        setMessages(data);
+      })
+      .catch((error: unknown) => {
+        setRequestError(error instanceof Error ? error.message : "Gagal memuat kotak surat.");
+      });
   }, []);
 
   const filtered = useMemo(() => {
@@ -111,85 +69,83 @@ export function KotakSuratView() {
     [messages, selectedId, filtered],
   );
 
-  function selectAndRead(id: string) {
-    setSelectedId(id);
-    setComposing(false);
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, unread: false } : m)));
-    void fetch(`/api/messages/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ unread: false }),
-    }).catch(() => {});
+  async function selectAndRead(id: string) {
+    setRequestError(null);
+    try {
+      const res = await fetch(`/api/messages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unread: false }),
+      });
+      if (!res.ok) throw new Error("Status pesan gagal diperbarui.");
+      setSelectedId(id);
+      setComposing(false);
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, unread: false } : m)));
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Status pesan gagal diperbarui.");
+    }
   }
 
-  function toggleRead(id: string) {
+  async function toggleRead(id: string) {
     const target = messages.find((m) => m.id === id);
     const nextUnread = target ? !target.unread : false;
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, unread: nextUnread } : m)));
-    void fetch(`/api/messages/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ unread: nextUnread }),
-    }).catch(() => {});
+    await updateMessage(id, { unread: nextUnread });
   }
 
-  function toggleArchive(id: string) {
+  async function toggleArchive(id: string) {
     const target = messages.find((m) => m.id === id);
     const nextArchived = target ? !target.archived : false;
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, archived: nextArchived } : m)));
-    void fetch(`/api/messages/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ archived: nextArchived }),
-    }).catch(() => {});
+    await updateMessage(id, { archived: nextArchived });
   }
 
-  function deleteMessage(id: string) {
-    setMessages((prev) => prev.filter((m) => m.id !== id));
-    if (selectedId === id) setSelectedId("");
-    void fetch(`/api/messages/${id}`, { method: "DELETE" }).catch(() => {});
+  async function updateMessage(id: string, changes: { unread?: boolean; archived?: boolean }) {
+    setRequestError(null);
+    try {
+      const res = await fetch(`/api/messages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      if (!res.ok) throw new Error("Status pesan gagal diperbarui.");
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...changes } : m)));
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Status pesan gagal diperbarui.");
+    }
+  }
+
+  async function deleteMessage(id: string) {
+    setRequestError(null);
+    try {
+      const res = await fetch(`/api/messages/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Pesan gagal dihapus.");
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      if (selectedId === id) setSelectedId("");
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Pesan gagal dihapus.");
+    }
   }
 
   async function handleSendSupport(e: FormEvent) {
     e.preventDefault();
     if (!newSubject.trim() || !newBody.trim()) return;
+    setRequestError(null);
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject: newSubject.trim(), body: newBody.trim() }),
       });
-      if (res.ok) {
-        const created = (await res.json()) as MailItem;
-        setMessages((prev) => [created, ...prev]);
-        setSelectedId(created.id);
-        setComposing(false);
-        setNewSubject("");
-        setNewBody("");
-        setSentNotice("Pesan telah dikirim ke tim dukungan.");
-        return;
-      }
-    } catch {
-      // Fallback
+      if (!res.ok) throw new Error("Pesan gagal dikirim.");
+      const created = (await res.json()) as MailItem;
+      setMessages((prev) => [created, ...prev]);
+      setSelectedId(created.id);
+      setComposing(false);
+      setNewSubject("");
+      setNewBody("");
+      setSentNotice("Pesan telah dikirim ke tim dukungan.");
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Pesan gagal dikirim.");
     }
-
-    const created: MailItem = {
-      id: `MSG-${Math.floor(200 + Math.random() * 800)}`,
-      sender: "Anda → Tim Dukungan wmTrader",
-      subject: newSubject.trim(),
-      preview: newBody.trim().slice(0, 90),
-      body: newBody.trim(),
-      category: "Dukungan",
-      timestamp: "Baru saja",
-      unread: false,
-      archived: false,
-    };
-    setMessages((prev) => [created, ...prev]);
-    setSelectedId(created.id);
-    setComposing(false);
-    setNewSubject("");
-    setNewBody("");
-    setSentNotice("Pesan telah ditambahkan ke daftar percakapan.");
   }
 
   const unreadCount = messages.filter((m) => m.unread && !m.archived).length;
@@ -210,6 +166,15 @@ export function KotakSuratView() {
           <span>{composing ? "Batal Tulis" : "Hubungi Dukungan"}</span>
         </Button>
       </div>
+
+      {requestError && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          {requestError}
+        </p>
+      )}
 
       {sentNotice && (
         <div
