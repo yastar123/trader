@@ -185,6 +185,8 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
     expect(logged.loggedIn).toBe(true);
     expect(logged.email).toBe("trader.uji@ictrading.id");
     expect(logged.name).toBe("Trader Uji");
+    expect(logged.balance).toBe(0);
+    expect(memoryStore.users.find((user) => user.accountId === logged.accountId)?.balance).toBe(0);
 
     const updated = await db.updateProfile({
       currency: "IDR",
@@ -198,6 +200,15 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
     await db.logoutTrader();
     const afterLogout = await db.getSession();
     expect(afterLogout.loggedIn).toBe(false);
+
+    const existing = await db.loginOrRegisterTrader({
+      email: snapshotUsers[0]!.email,
+      isRegister: true,
+    });
+    expect(existing.balance).toBe(snapshotUsers[0]!.balance);
+
+    memoryStore.profile.accountId = "missing-account";
+    expect((await db.getSession()).balance).toBe(0);
   });
 
   it("supports admin deposit method CRUD, wallet limits, and IDR->USD deposit approval", async () => {

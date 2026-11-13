@@ -691,7 +691,7 @@ function rowToSession(
     const currentUser = memoryStore.users.find(
       (u) => u.accountId === memoryStore.profile.accountId,
     );
-    return { ...memoryStore.profile, loggedIn, balance: currentUser?.balance ?? 24510 };
+    return { ...memoryStore.profile, loggedIn, balance: currentUser?.balance ?? 0 };
   }
   return {
     name: String(userRow.name),
@@ -712,7 +712,7 @@ export const db = {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
-      return { ...memoryStore.profile, balance: currentUser?.balance ?? 24510 };
+      return { ...memoryStore.profile, balance: currentUser?.balance ?? 0 };
     }
     const { userRow, loggedIn } = await getActiveTraderRow(pool);
     return rowToSession(userRow, loggedIn);
@@ -727,14 +727,51 @@ export const db = {
     const name = payload.name?.trim();
 
     if (!pgReady || !pool) {
-      if (email) memoryStore.profile.email = email;
-      if (name) memoryStore.profile.name = name;
-      else if (email) memoryStore.profile.name = email.split("@")[0] || memoryStore.profile.name;
+      const currentUser = email
+        ? memoryStore.users.find((user) => user.email.toLowerCase() === email)
+        : undefined;
+      if (currentUser) {
+        if (name && name !== currentUser.name && !payload.isRegister) {
+          currentUser.name = name;
+        }
+        memoryStore.profile.accountId = currentUser.accountId;
+        memoryStore.profile.email = currentUser.email;
+        memoryStore.profile.name = currentUser.name;
+        memoryStore.profile.accountType = currentUser.accountType;
+      } else if (email) {
+        let id = `USR-${crypto.randomBytes(6).toString("hex")}`;
+        while (memoryStore.users.some((user) => user.id === id)) {
+          id = `USR-${crypto.randomBytes(6).toString("hex")}`;
+        }
+        let accountId = `IC-${Math.floor(885000 + Math.random() * 99000)}`;
+        while (memoryStore.users.some((user) => user.accountId === accountId)) {
+          accountId = `IC-${Math.floor(885000 + Math.random() * 99000)}`;
+        }
+        const displayName = name || email.split("@")[0] || "Trader Baru";
+        const newUser: AdminUserRecord = {
+          id,
+          accountId,
+          name: displayName,
+          email,
+          accountType: "Raw Spread",
+          balance: 0,
+          kycStatus: "Menunggu",
+          status: "Aktif",
+          joinedAt: "Hari ini",
+        };
+        memoryStore.users = [...memoryStore.users, newUser];
+        memoryStore.profile.accountId = accountId;
+        memoryStore.profile.email = email;
+        memoryStore.profile.name = displayName;
+        memoryStore.profile.accountType = "Raw Spread";
+      } else if (name) {
+        memoryStore.profile.name = name;
+      }
       memoryStore.profile.loggedIn = true;
-      const currentUser = memoryStore.users.find(
+      const activeUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
-      return { ...memoryStore.profile, balance: currentUser?.balance ?? 24510 };
+      return { ...memoryStore.profile, balance: activeUser?.balance ?? 0 };
     }
 
     if (email) {
@@ -762,9 +799,9 @@ export const db = {
       const inserted = await pool.query(
         `INSERT INTO users (
            id, account_id, name, email, account_type, currency, timezone, leverage,
-           balance, kyc_status, status, joined_at
-         )
-         VALUES ($1,$2,$3,$4,'Raw Spread','USD','Asia/Jakarta (WIB)',500,10000.00,'Menunggu','Aktif',$5)
+             balance, kyc_status, status, joined_at
+           )
+           VALUES ($1,$2,$3,$4,'Raw Spread','USD','Asia/Jakarta (WIB)',500,0.00,'Menunggu','Aktif',$5)
          RETURNING *`,
         [newId, newAccountId, displayName, email, "Hari ini"],
       );
@@ -819,7 +856,7 @@ export const db = {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
-      return { ...memoryStore.profile, balance: currentUser?.balance ?? 24510 };
+      return { ...memoryStore.profile, balance: currentUser?.balance ?? 0 };
     }
 
     const { userRow, loggedIn } = await getActiveTraderRow(pool);
@@ -1417,7 +1454,7 @@ export const db = {
         (u) => u.accountId === memoryStore.profile.accountId,
       );
       return {
-        balance: currentUser?.balance ?? 24510,
+        balance: currentUser?.balance ?? 0,
         deposits: memoryStore.deposits.filter((d) => d.accountId === memoryStore.profile.accountId),
         withdrawals: memoryStore.withdrawals.filter(
           (w) => w.accountId === memoryStore.profile.accountId,
@@ -1440,7 +1477,7 @@ export const db = {
     ]);
 
     return {
-      balance: Number(userRow?.balance ?? 24510),
+      balance: Number(userRow?.balance ?? 0),
       deposits: depRes.rows.map(mapDepositRow),
       withdrawals: wdRes.rows.map(mapWithdrawRow),
       limits,
@@ -1662,7 +1699,7 @@ export const db = {
       const activeStakeUsed = userPositions
         .filter((p) => p.status === "Terbuka")
         .reduce((acc, cur) => acc + resolvePositionStakeUsd(cur), 0);
-      const freeCapital = Math.max(0, (currentUser?.balance ?? 24510) - activeStakeUsed);
+      const freeCapital = Math.max(0, (currentUser?.balance ?? 0) - activeStakeUsed);
       if (stakeUsd > freeCapital) {
         return {
           error: `Saldo bebas tidak mencukupi ($${freeCapital.toFixed(2)} tersedia, nominal dipilih $${stakeUsd.toFixed(2)}).`,
@@ -1705,7 +1742,7 @@ export const db = {
 
     const { userRow } = await getActiveTraderRow(pool);
     const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
-    const userBalance = Number(userRow?.balance ?? 24510);
+    const userBalance = Number(userRow?.balance ?? 0);
     const userLeverage = Number(userRow?.leverage ?? 500);
 
     const [todayRes, activeRes] = await Promise.all([
@@ -1860,7 +1897,7 @@ export const db = {
       if (!existing) return null;
       if (existing.status === "Ditutup") {
         const cur = memoryStore.users.find((u) => u.accountId === existing.accountId);
-        return { position: existing, balance: cur?.balance ?? 24510 };
+        return { position: existing, balance: cur?.balance ?? 0 };
       }
 
       const wasOpen = existing.status === "Terbuka";
@@ -1891,7 +1928,7 @@ export const db = {
       }
       const updated = memoryStore.positions.find((p) => p.id === id)!;
       const cur = memoryStore.users.find((u) => u.accountId === existing.accountId);
-      return { position: updated, balance: cur?.balance ?? 24510 };
+      return { position: updated, balance: cur?.balance ?? 0 };
     }
 
     const client = await pool.connect();
@@ -1910,7 +1947,7 @@ export const db = {
         await client.query("COMMIT");
         return {
           position: existing,
-          balance: Number(uRes.rows[0]?.balance ?? 24510),
+          balance: Number(uRes.rows[0]?.balance ?? 0),
         };
       }
 
@@ -1936,19 +1973,19 @@ export const db = {
         [settledPnl, id],
       );
 
-      let nextBalance = 24510;
+      let nextBalance = 0;
       if (wasOpen && settledPnl > 0) {
         const uUpd = await client.query(
           `UPDATE users SET balance = GREATEST(0, ROUND((balance + $1)::numeric, 2))
            WHERE account_id = $2 RETURNING balance`,
           [settledPnl, existing.accountId],
         );
-        nextBalance = Number(uUpd.rows[0]?.balance ?? 24510);
+        nextBalance = Number(uUpd.rows[0]?.balance ?? 0);
       } else {
         const uRes = await client.query(`SELECT balance FROM users WHERE account_id = $1`, [
           existing.accountId,
         ]);
-        nextBalance = Number(uRes.rows[0]?.balance ?? 24510);
+        nextBalance = Number(uRes.rows[0]?.balance ?? 0);
       }
 
       await client.query("COMMIT");
