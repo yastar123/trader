@@ -27,8 +27,6 @@ import { saveDemoSession, useDemoSession } from "@/lib/fe-session";
 import { readImageFileAsDataUrl } from "@/lib/image-upload";
 import { cn } from "@/lib/utils";
 
-const PRESET_IDR_AMOUNTS = [170_000, 850_000, 1_700_000, 4_250_000, 8_500_000, 17_000_000];
-
 export function DepositView() {
   const { session } = useDemoSession();
   const [balance, setBalance] = useState<number>(session.balance ?? 0);
@@ -303,10 +301,6 @@ export function DepositView() {
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4 py-3">
-                    <dt className="text-muted-foreground">Biaya Layanan</dt>
-                    <dd className="text-right font-medium text-foreground">{activeMethod.fee}</dd>
-                  </div>
-                  <div className="flex justify-between gap-4 py-3">
                     <dt className="text-muted-foreground">Estimasi Proses</dt>
                     <dd className="text-right text-xs text-muted-foreground">{activeMethod.eta}</dd>
                   </div>
@@ -367,7 +361,6 @@ export function DepositView() {
                       )}
                     >
                       <p className="text-sm font-semibold text-foreground">{method.label}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{method.fee}</p>
                     </button>
                   );
                 })}
@@ -385,26 +378,8 @@ export function DepositView() {
                   2. Nominal Deposit (Rupiah / IDR)
                 </label>
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  Min {formatIdr(minIdr)} ({formatUsd(limits.minDeposit)}) · Maks{" "}
-                  {formatIdr(maxIdr)} ({formatUsd(limits.maxDeposit)})
+                  Minimal {formatIdr(minIdr)} ({formatUsd(limits.minDeposit)})
                 </span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PRESET_IDR_AMOUNTS.map((presetIdr) => (
-                  <button
-                    key={presetIdr}
-                    type="button"
-                    onClick={() => setAmountIdrInput(String(presetIdr))}
-                    className={cn(
-                      "rounded-md border px-3 py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
-                      Number(amountIdrInput) === presetIdr
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {formatIdr(presetIdr)}
-                  </button>
-                ))}
               </div>
               <Input
                 id="deposit-amount"
@@ -415,7 +390,7 @@ export function DepositView() {
                 required
                 value={amountIdrInput}
                 onChange={(e) => setAmountIdrInput(e.target.value)}
-                className="mt-2.5 h-11 bg-background font-mono text-base font-semibold tabular-nums"
+                className="mt-2 h-11 bg-background font-mono text-base font-semibold tabular-nums"
               />
 
               <div className="mt-2.5 flex flex-col justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3.5 py-2.5 sm:flex-row sm:items-center">
@@ -436,18 +411,18 @@ export function DepositView() {
 
             <div>
               <label htmlFor="deposit-ref" className="block text-xs font-medium text-foreground">
-                3. Nomor Referensi / Kode Bukti Transfer
+                3. Nomor Referensi / Kode Bukti Transfer (Opsional)
               </label>
               <Input
                 id="deposit-ref"
-                required
                 value={referenceInput}
                 onChange={(e) => setReferenceInput(e.target.value)}
                 placeholder="Contoh: BNI-REF-8840129 atau Hash TX"
                 className="mt-2 h-11 bg-background font-mono text-sm"
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Admin akan mencocokkan nomor referensi dan bukti gambar sebelum saldo dikreditkan.
+                Opsional. Admin memverifikasi bukti transfer; wmTrader tidak memotong biaya atau
+                pajak dari saldo deposit.
               </p>
             </div>
 
@@ -598,7 +573,7 @@ export function DepositView() {
                       </td>
                       <td className="py-3 pr-4 font-medium text-foreground">{item.method}</td>
                       <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">
-                        {item.reference}
+                        {item.reference || "—"}
                       </td>
                       <td className="py-3 pr-4">
                         {item.proofImage ? (
@@ -685,7 +660,8 @@ export function DepositView() {
               <div>
                 <p className="font-mono text-xs font-bold text-primary">{previewDeposit.id}</p>
                 <p className="text-sm font-semibold text-foreground">
-                  {previewDeposit.method} · Ref {previewDeposit.reference}
+                  {previewDeposit.method}
+                  {previewDeposit.reference ? ` · Ref ${previewDeposit.reference}` : ""}
                 </p>
               </div>
               <button

@@ -62,10 +62,17 @@ type WorkspaceShellProps = {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  fullWidth?: boolean;
   children: ReactNode;
 };
 
-export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceShellProps) {
+export function WorkspaceShell({
+  title,
+  subtitle,
+  action,
+  fullWidth = false,
+  children,
+}: WorkspaceShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebarCollapse("user");
   const navigate = useNavigate();
@@ -371,7 +378,14 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 sm:px-6 md:pb-6 lg:px-8 lg:py-8">
+        <main
+          className={cn(
+            "w-full flex-1",
+            fullWidth
+              ? "min-w-0 px-0 py-0 pb-16 md:pb-0"
+              : "mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 md:pb-6 lg:px-8 lg:py-8",
+          )}
+        >
           {children}
         </main>
 

@@ -89,11 +89,16 @@ function computeFloatingPnl(
 }
 
 type TradeViewProps = {
-  mode?: "terminal" | "positions";
+  mode?: "terminal" | "positions" | "chart";
   initialTab?: "Terbuka" | "Tertunda" | "Ditutup";
+  positionLayout?: "table" | "compact";
 };
 
-export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeViewProps) {
+export function TradeView({
+  mode = "terminal",
+  initialTab = "Terbuka",
+  positionLayout = "table",
+}: TradeViewProps) {
   const { session, updateSession } = useDemoSession();
   const [balance, setBalance] = useState<number>(session.balance ?? 0);
 
@@ -624,7 +629,7 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
       {/* Live Account & Margin Bar */}
       <section
         aria-label="Ringkasan margin langsung"
-        hidden={mode === "positions"}
+        hidden={mode !== "terminal"}
         className="rounded-xl border border-border bg-card p-4"
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2.5">
@@ -723,7 +728,13 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
 
       {/* Instrument Selector Strip with Live Server Ticks */}
       <div
-        className={mode === "positions" ? "hidden" : "flex items-center gap-2 overflow-x-auto pb-1"}
+        className={
+          mode === "positions"
+            ? "hidden"
+            : mode === "chart"
+              ? "flex shrink-0 gap-2 overflow-x-auto px-3 py-2"
+              : "flex items-center gap-2 overflow-x-auto pb-1"
+        }
       >
         {markets.map((market) => {
           const active = market.symbol === activeMarket.symbol;
@@ -745,7 +756,9 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
               <div>
                 <div className="flex items-center gap-1.5">
                   <p className="font-display text-sm font-bold text-foreground">{market.symbol}</p>
-                  <span className="text-[10px] text-muted-foreground">{market.category}</span>
+                  {mode === "chart" && (
+                    <span className="text-[10px] text-muted-foreground">{market.category}</span>
+                  )}
                 </div>
                 <p
                   className={cn(
@@ -776,9 +789,23 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
       </div>
 
       {/* Main Live Chart + Order Ticket */}
-      <div className={mode === "positions" ? "hidden" : "grid gap-6 xl:grid-cols-12"}>
+      <div
+        className={
+          mode === "positions"
+            ? "hidden"
+            : mode === "chart"
+              ? "flex h-[calc(100dvh-8rem)] flex-col md:h-[calc(100dvh-4rem)]"
+              : "grid gap-6 xl:grid-cols-12"
+        }
+      >
         {/* Candlestick / Area Chart */}
-        <section className="rounded-xl border border-border bg-card p-5 sm:p-6 xl:col-span-8">
+        <section
+          className={
+            mode === "chart"
+              ? "flex min-h-0 flex-1 flex-col"
+              : "rounded-xl border border-border bg-card p-5 sm:p-6 xl:col-span-8"
+          }
+        >
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
             <div>
               <div className="flex flex-wrap items-baseline gap-3">
@@ -925,7 +952,12 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
           {/* Interactive SVG Chart */}
           <div
             ref={chartContainerRef}
-            className="relative mt-2 h-80 w-full select-none overflow-hidden rounded-lg border border-border/70 bg-background/60 sm:h-96"
+            className={cn(
+              "relative mt-2 w-full flex-1 select-none overflow-hidden bg-background/60",
+              mode === "chart"
+                ? "min-h-[320px]"
+                : "h-80 rounded-lg border border-border/70 sm:h-96",
+            )}
           >
             <svg
               width={chartGeometry.w}
@@ -1173,7 +1205,10 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
         </section>
 
         {/* Order Execution Ticket */}
-        <section className="rounded-xl border border-border bg-card p-5 sm:p-6 xl:col-span-4">
+        <section
+          hidden={mode === "chart"}
+          className="rounded-xl border border-border bg-card p-5 sm:p-6 xl:col-span-4"
+        >
           <div className="border-b border-border pb-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-lg font-bold">Tiket Order</h2>
@@ -1474,8 +1509,128 @@ export function TradeView({ mode = "terminal", initialTab = "Terbuka" }: TradeVi
         </section>
       </div>
 
+      {mode === "positions" && positionLayout === "compact" && (
+        <>
+          <section aria-label="Ringkasan saldo dan margin" className="space-y-1">
+            {[
+              ["Saldo", balancePair.primary],
+              ["Equity", equityPair.primary],
+              ["Margin", formatMoneyPair(usedMargin, displayCurrency).primary],
+              ["Margin Bebas", freeMarginPair.primary],
+              ["Level Margin (%)", usedMargin > 0 ? `${marginLevel.toFixed(2)}%` : "—"],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between gap-4 border-b border-dotted border-border py-1 text-xs"
+              >
+                <span className="font-semibold text-muted-foreground">{label}:</span>
+                <span className="font-mono font-semibold tabular-nums text-foreground">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </section>
+
+          <section aria-label="Posisi aktif">
+            <div className="mb-1 flex items-center justify-between border-b border-border py-2">
+              <h2 className="text-sm font-bold text-foreground">Posisi</h2>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                {displayedPositions.length}
+              </span>
+            </div>
+            {displayedPositions.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Belum ada posisi {bottomTab.toLowerCase()}.
+              </p>
+            ) : (
+              <div>
+                {positionsPagination.paginatedItems.map((pos) => {
+                  const pnlPair = formatMoneyPair(pos.livePnl, displayCurrency, { signed: true });
+                  const lockInfo =
+                    pos.status === "Terbuka"
+                      ? formatHoldCountdown(pos.unlockAtMs, nowMs)
+                      : { locked: false, remainingMs: 0, label: "" };
+
+                  return (
+                    <article
+                      key={pos.id}
+                      className="flex items-center justify-between gap-3 border-b border-dotted border-border py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold text-foreground">
+                          {pos.symbol},{" "}
+                          <span
+                            className={pos.side === "BUY" ? "text-primary" : "text-destructive"}
+                          >
+                            {pos.side.toLowerCase()} {pos.lot.toFixed(2)}
+                          </span>
+                        </p>
+                        <p className="truncate font-mono text-[11px] tabular-nums text-muted-foreground">
+                          {pos.entry.toFixed(pos.decimals)} →{" "}
+                          {pos.status === "Ditutup" ? "—" : pos.currentPrice.toFixed(pos.decimals)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={cn(
+                            "font-mono text-xs font-bold tabular-nums",
+                            pos.livePnl >= 0 ? "text-primary" : "text-destructive",
+                          )}
+                        >
+                          {pnlPair.primary}
+                        </span>
+                        {pos.status === "Terbuka" && !lockInfo.locked && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Tutup posisi ${pos.symbol}`}
+                            onClick={() => void handleClosePosition(pos, pos.livePnl)}
+                            className="h-7 px-2 text-[10px] text-primary hover:bg-primary/10 hover:text-primary"
+                          >
+                            Tutup
+                          </Button>
+                        )}
+                        {pos.status === "Tertunda" && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Batalkan order ${pos.symbol}`}
+                            onClick={() => void handleClosePosition(pos, 0)}
+                            className="h-7 px-2 text-[10px] text-muted-foreground hover:text-destructive"
+                          >
+                            Batal
+                          </Button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            {displayedPositions.length > positionsPagination.pageSize && (
+              <DataPagination
+                page={positionsPagination.page}
+                totalPages={positionsPagination.totalPages}
+                totalItems={positionsPagination.totalItems}
+                startItem={positionsPagination.startItem}
+                endItem={positionsPagination.endItem}
+                pageSize={positionsPagination.pageSize}
+                onPageChange={positionsPagination.setPage}
+                onPageSizeChange={positionsPagination.setPageSize}
+                className="mt-3"
+              />
+            )}
+          </section>
+        </>
+      )}
+
       {/* Positions & Orders Table with Live P&L */}
-      <section className="rounded-xl border border-border bg-card p-5 sm:p-6">
+      <section
+        hidden={mode === "chart" || positionLayout === "compact"}
+        className="rounded-xl border border-border bg-card p-5 sm:p-6"
+      >
         <div className="flex flex-col items-stretch gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="grid w-full grid-cols-1 gap-1 rounded-lg border border-border bg-background p-1 sm:flex sm:w-auto">
             {(["Terbuka", "Tertunda", "Ditutup"] as const).map((tab) => {

@@ -283,13 +283,14 @@ describe("Full Feature Suite — Trader & Admin Core Services", () => {
       amountIdr: depositIdr,
       exchangeRate: USD_TO_IDR_RATE,
       method: "Transfer Bank BNI",
-      reference: "BNI-TEST-01",
+      reference: "",
       proofImage: "data:image/png;base64,iVBORw0KGgo=",
       proofFileName: "bukti.png",
     });
     expect(dep.status).toBe("Menunggu");
     expect(dep.amount).toBe(200);
     expect(dep.amountIdr).toBe(3_400_000);
+    expect(dep.reference).toBe("");
 
     const reviewed = await db.reviewDeposit({
       id: dep.id,
@@ -636,13 +637,13 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     });
     expect(screen.getByText("Instruksi Transfer Tujuan")).toBeInTheDocument();
     expect(screen.getByText("Formulir Pengajuan Deposit")).toBeInTheDocument();
+    expect(screen.queryByText("Biaya Layanan")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Transfer Bank BCA/ })).toBeInTheDocument();
     });
-    fireEvent.change(screen.getByLabelText(/Nomor Referensi/i), {
-      target: { value: "BNI-UJI-99" },
-    });
+    expect(screen.getByLabelText(/Nomor Referensi/i)).not.toBeRequired();
+    expect(screen.queryByRole("button", { name: "Rp 170.000" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("spinbutton"), {
       target: { value: "170000" },
     });
@@ -683,12 +684,19 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     expect(screen.queryByText(/Default Keuntungan User/i)).not.toBeInTheDocument();
   });
 
-  it("renders coin charts from enabled market data and opens position history on its tab", async () => {
+  it("renders all enabled market quotes with the shared live chart controls", async () => {
     renderWithQuery(<ChartView />);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /BTCUSD/ })).toBeInTheDocument();
     });
-    expect(screen.getByRole("region", { name: /Grafik Bitcoin/ })).toBeInTheDocument();
+    for (const market of memoryStore.markets.filter((item) => item.enabled)) {
+      expect(screen.getByRole("button", { name: new RegExp(market.symbol) })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "Candlestick" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Garis" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "M5" })).toBeInTheDocument();
+    expect(screen.getByText("Bid:")).toBeInTheDocument();
+    expect(screen.queryByText("Tiket Order")).not.toBeVisible();
     cleanup();
 
     renderWithQuery(<TradeView mode="positions" initialTab="Ditutup" />);
@@ -699,6 +707,16 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
       );
     });
     expect(screen.getByText("Ringkasan Akun & Margin")).not.toBeVisible();
+    cleanup();
+
+    renderWithQuery(<TradeView mode="positions" positionLayout="compact" />);
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Ringkasan saldo dan margin" })).toBeVisible();
+      expect(screen.getByRole("region", { name: "Posisi aktif" })).toBeVisible();
+    });
+    expect(screen.getByText("Saldo:")).toBeInTheDocument();
+    expect(screen.getByText("Level Margin (%):")).toBeInTheDocument();
+    expect(screen.getByText(/EURUSD,/)).toBeInTheDocument();
   });
 
   it("renders AccountPage (login & register) and AdminLoginView with matching login appearance", () => {

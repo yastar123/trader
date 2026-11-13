@@ -161,13 +161,10 @@ function createApiRouter() {
     };
     const limits = await db.getWalletLimits();
     const method = body.method?.trim();
-    const reference = body.reference?.trim();
+    const reference = body.reference?.trim() ?? "";
     const depositMethods = await db.getDepositMethods(false);
     if (!method || !depositMethods.some((item) => item.label === method)) {
       return res.status(400).json({ error: "Pilih metode deposit aktif yang tersedia." });
-    }
-    if (!reference) {
-      return res.status(400).json({ error: "Nomor referensi transfer wajib diisi." });
     }
     const hasAmountIdr = body.amountIdr !== undefined && body.amountIdr !== null;
     const rawIdr = hasAmountIdr ? Number(body.amountIdr) : Number.NaN;

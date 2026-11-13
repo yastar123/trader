@@ -3,7 +3,7 @@ import { ChartView } from "@/components/workspace/chart-view";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
 const pageTitle = "Chart | wmTrader";
-const pageDescription = "Grafik harga instrumen coin yang tersedia di wmTrader.";
+const pageDescription = "Pantau grafik harga dan kuotasi live instrumen pasar wmTrader.";
 
 export const Route = createFileRoute("/chart")({
   head: () => ({
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/chart")({
 
 function ChartPage() {
   return (
-    <WorkspaceShell title="Chart" subtitle="Grafik instrumen coin">
+    <WorkspaceShell title="Chart" fullWidth>
       <ChartView />
     </WorkspaceShell>
   );

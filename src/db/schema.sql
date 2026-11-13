@@ -132,6 +132,13 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE inbox_messages
+  ADD COLUMN IF NOT EXISTS recipient_user_id TEXT
+  REFERENCES users(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS inbox_messages_recipient_created_idx
+  ON inbox_messages (recipient_user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS community_posts (
   id TEXT PRIMARY KEY,
   author TEXT NOT NULL,
@@ -207,4 +214,3 @@ ALTER TABLE positions ADD COLUMN IF NOT EXISTS opened_at_ms BIGINT NOT NULL DEFA
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS unlock_at_ms BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS opened_date TEXT NOT NULL DEFAULT '';
 ALTER TABLE trading_rules ADD COLUMN IF NOT EXISTS default_profit_percent NUMERIC(8, 2) NOT NULL DEFAULT 10.00;
-

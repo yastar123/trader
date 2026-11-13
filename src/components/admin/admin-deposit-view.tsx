@@ -772,7 +772,7 @@ export function AdminDepositView() {
                         <td className="px-4 py-4">
                           <p className="font-medium text-foreground">{item.method}</p>
                           <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                            Ref: {item.reference}
+                            Ref: {item.reference || "—"}
                           </p>
                         </td>
                         <td className="px-4 py-4">

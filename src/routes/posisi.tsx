@@ -20,7 +20,7 @@ export const Route = createFileRoute("/posisi")({
 function PositionsPage() {
   return (
     <WorkspaceShell title="Posisi" subtitle="Posisi terbuka dan order tertunda">
-      <TradeView mode="positions" initialTab="Terbuka" />
+      <TradeView mode="positions" initialTab="Terbuka" positionLayout="compact" />
     </WorkspaceShell>
   );
 }

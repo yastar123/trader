@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
-import { pushSchemaAndSeedClient } from "../server/db.ts";
+import { pushSchemaClient } from "../server/db.ts";
 
 // Muat file .env jika tersedia
 try {
@@ -69,9 +69,11 @@ async function runDbPush() {
 
     try {
       await client.query("BEGIN");
-      await pushSchemaAndSeedClient(client);
+      await pushSchemaClient(client);
       await client.query("COMMIT");
-      console.log("[db:push] Sukses! Skema tabel dan seed awal berhasil di-push ke PostgreSQL.");
+      console.log(
+        "[db:push] Sukses! Skema tabel berhasil di-push ke PostgreSQL tanpa menambahkan seed data.",
+      );
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
