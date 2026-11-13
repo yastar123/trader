@@ -660,6 +660,10 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     await waitFor(() => {
       expect(screen.getByText("Withdraw Saldo Akun")).toBeInTheDocument();
     });
+    expect(screen.queryByRole("button", { name: "$100" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "$250" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "$500" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "$1,000" })).not.toBeInTheDocument();
 
     renderWithQuery(<JurnalView />);
     await waitFor(() => {
@@ -717,6 +721,13 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
     expect(screen.getByText("Saldo:")).toBeInTheDocument();
     expect(screen.getByText("Level Margin (%):")).toBeInTheDocument();
     expect(screen.getByText(/EURUSD,/)).toBeInTheDocument();
+    cleanup();
+
+    renderWithQuery(<TradeView />);
+    await waitFor(() => {
+      expect(screen.getByText("Tiket Order")).toBeVisible();
+    });
+    expect(screen.getByRole("button", { name: /Riwayat Ditutup/ })).toBeVisible();
   });
 
   it("renders AccountPage (login & register) and AdminLoginView with matching login appearance", () => {

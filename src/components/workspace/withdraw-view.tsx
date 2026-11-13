@@ -22,8 +22,6 @@ const BANK_CHANNELS = [
   { id: "usdt", label: "Dompet USDT (TRC20)" },
 ];
 
-const PRESET_WITHDRAW = [100, 250, 500, 1000];
-
 export function WithdrawView() {
   const { session } = useDemoSession();
   const [balance, setBalance] = useState<number>(session.balance ?? 0);
@@ -288,23 +286,6 @@ export function WithdrawView() {
                     minimumFractionDigits: 2,
                   })}
                 </span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PRESET_WITHDRAW.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setAmountInput(String(preset))}
-                    className={cn(
-                      "rounded-md border px-3 py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
-                      Number(amountInput) === preset
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    ${preset.toLocaleString("en-US")}
-                  </button>
-                ))}
               </div>
               <Input
                 id="withdraw-amount"

@@ -295,7 +295,7 @@ export function WorkspaceShell({
       <div
         className={cn(
           "flex min-h-screen flex-col transition-[padding] duration-200",
-          collapsed ? "lg:pl-[72px]" : "lg:pl-64",
+          collapsed ? "lg:pl-0" : "lg:pl-64",
         )}
       >
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b border-border bg-background/90 px-4 backdrop-blur-md sm:px-6 lg:px-8">
@@ -382,7 +382,7 @@ export function WorkspaceShell({
           className={cn(
             "w-full flex-1",
             fullWidth
-              ? "min-w-0 px-0 py-0 pb-16 md:pb-0"
+              ? "min-w-0 px-3 py-0 pb-16 sm:px-5 md:pb-0 lg:px-6"
               : "mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 md:pb-6 lg:px-8 lg:py-8",
           )}
         >
