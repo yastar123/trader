@@ -164,7 +164,7 @@ export function PengaturanView() {
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="USD">USD — Dolar Amerika Serikat</option>
-                <option value="IDR">IDR — Rupiah Indonesia</option>
+                <option value="IDR">IDR — Rupiah Indonesia (1 USD = Rp 17.000)</option>
               </select>
             </div>
           </div>

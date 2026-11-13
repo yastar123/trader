@@ -17,6 +17,17 @@ export type AdminUserRecord = {
   joinedAt: string;
 };
 
+export type DepositMethodRecord = {
+  id: string;
+  label: string;
+  accountInfo: string;
+  accountHolder: string;
+  fee: string;
+  eta: string;
+  enabled: boolean;
+  sortOrder?: number;
+};
+
 export type DepositRequestRecord = {
   id: string;
   userId: string;
@@ -26,6 +37,8 @@ export type DepositRequestRecord = {
   method: string;
   reference: string;
   amount: number;
+  amountIdr?: number;
+  exchangeRate?: number;
   currency: "USD";
   proofImage?: string;
   proofFileName?: string;
@@ -104,6 +117,7 @@ export type AdminPositionRecord = {
   type: "Market" | "Limit";
   side: "BUY" | "SELL";
   lot: number;
+  stakeUsd?: number;
   leverage: number;
   entry: number;
   currentPrice: number;
@@ -112,8 +126,12 @@ export type AdminPositionRecord = {
   tp: string;
   pnl: number;
   livePnl: number;
+  adminProfitUsd?: number;
   status: "Terbuka" | "Tertunda" | "Ditutup";
   openedAt: string;
+  openedAtMs?: number;
+  unlockAtMs?: number;
+  openedDate?: string;
 };
 
 export type AdminOverviewResponse = {
@@ -130,9 +148,21 @@ export type AdminOverviewResponse = {
   recentAudit: AuditLogRecord[];
 };
 
-export function formatUsd(value: number): string {
-  return `$${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
+export type WalletLimitsRecord = {
+  minDeposit: number;
+  maxDeposit: number;
+  minWithdraw: number;
+  maxWithdraw: number;
+  updatedBy?: string;
+  updatedAt?: string;
+};
+
+export type { TradingRulesRecord } from "@/lib/trading";
+
+export {
+  USD_TO_IDR_RATE,
+  formatIdr,
+  formatMoneyPair,
+  formatUsd,
+  type DisplayCurrency,
+} from "@/lib/currency";

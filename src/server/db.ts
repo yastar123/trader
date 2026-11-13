@@ -3,14 +3,24 @@ import fs from "node:fs";
 import path from "node:path";
 import { Pool, type PoolClient } from "pg";
 import {
+  formatHoldCountdown,
+  formatMinCloseDuration,
+  resolvePositionStakeUsd,
+  resolveTargetProfitUsd,
+  type TradingRulesRecord,
+} from "../lib/trading.ts";
+import {
   computePositionFloatingPnl,
   generateSeedCandles,
+  getWibDateKey,
   memoryStore,
   stepMarketTicks,
+  USD_TO_IDR_RATE,
   type AdminUserRecord,
   type AuditLogRecord,
   type CandleRecord,
   type CommunityPostRecord,
+  type DepositMethodRecord,
   type DepositRequestRecord,
   type InboxMessage,
   type JournalRecord,
@@ -19,6 +29,7 @@ import {
   type TradePosition,
   type TrendBias,
   type UserProfile,
+  type WalletLimitsRecord,
   type WithdrawRequestRecord,
 } from "./store.ts";
 
@@ -121,13 +132,15 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
   }
 
   for (const dep of memoryStore.deposits) {
+    const amountIdr = dep.amountIdr ?? Math.round(dep.amount * USD_TO_IDR_RATE);
+    const exchangeRate = dep.exchangeRate ?? USD_TO_IDR_RATE;
     await client.query(
       `INSERT INTO deposit_requests (
          id, user_id, user_name, user_email, account_id, method, reference,
-         amount, currency, proof_image, proof_file_name, status,
+         amount, amount_idr, exchange_rate, currency, proof_image, proof_file_name, status,
          submitted_at, reviewed_at, reviewed_by, admin_note
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        ON CONFLICT (id) DO NOTHING`,
       [
         dep.id,
@@ -138,6 +151,8 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
         dep.method,
         dep.reference,
         dep.amount,
+        amountIdr,
+        exchangeRate,
         dep.currency,
         dep.proofImage ?? null,
         dep.proofFileName ?? null,
@@ -180,9 +195,10 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
     await client.query(
       `INSERT INTO positions (
          id, user_id, user_name, account_id, symbol, order_type, side,
-         lot, leverage, entry_price, stop_loss, take_profit, pnl, status, opened_at
+         lot, stake_usd, leverage, entry_price, stop_loss, take_profit, pnl, admin_profit_usd, status,
+         opened_at, opened_at_ms, unlock_at_ms, opened_date
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        ON CONFLICT (id) DO NOTHING`,
       [
         pos.id,
@@ -193,13 +209,18 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
         pos.type,
         pos.side,
         pos.lot,
+        resolvePositionStakeUsd(pos),
         pos.leverage,
         pos.entry,
         pos.sl,
         pos.tp,
         pos.pnl,
+        pos.adminProfitUsd ?? null,
         pos.status,
         pos.openedAt,
+        pos.openedAtMs ?? 0,
+        pos.unlockAtMs ?? 0,
+        pos.openedDate ?? "2026-11-12",
       ],
     );
   }
@@ -285,6 +306,49 @@ export async function pushSchemaAndSeedClient(client: PoolClient): Promise<void>
      ON CONFLICT (id) DO NOTHING`,
     [memoryStore.profile.accountId, memoryStore.profile.email],
   );
+
+  await client.query(
+    `INSERT INTO wallet_limits (id, min_deposit, max_deposit, min_withdraw, max_withdraw, updated_by)
+     VALUES ('default', $1, $2, $3, $4, $5)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      memoryStore.walletLimits.minDeposit,
+      memoryStore.walletLimits.maxDeposit,
+      memoryStore.walletLimits.minWithdraw,
+      memoryStore.walletLimits.maxWithdraw,
+      memoryStore.walletLimits.updatedBy ?? "admin@ictrading.id",
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO trading_rules (id, max_daily_positions, min_close_minutes, default_profit_percent, updated_by)
+     VALUES ('default', $1, $2, $3, $4)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      memoryStore.tradingRules.maxDailyPositions,
+      memoryStore.tradingRules.minCloseMinutes,
+      memoryStore.tradingRules.defaultProfitPercent ?? 10,
+      memoryStore.tradingRules.updatedBy ?? "admin@ictrading.id",
+    ],
+  );
+
+  for (const dm of memoryStore.depositMethods) {
+    await client.query(
+      `INSERT INTO deposit_methods (id, label, account_info, account_holder, fee, eta, enabled, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        dm.id,
+        dm.label,
+        dm.accountInfo,
+        dm.accountHolder,
+        dm.fee,
+        dm.eta,
+        dm.enabled,
+        dm.sortOrder ?? 0,
+      ],
+    );
+  }
 }
 
 function mapMarketRow(row: Record<string, unknown>): MarketInstrumentRecord {
@@ -334,7 +398,29 @@ function mapUserRow(row: Record<string, unknown>): AdminUserRecord {
   };
 }
 
+function mapDepositMethodRow(row: Record<string, unknown>): DepositMethodRecord {
+  return {
+    id: String(row.id),
+    label: String(row.label),
+    accountInfo: String(row.account_info),
+    accountHolder: String(row.account_holder),
+    fee: String(row.fee),
+    eta: String(row.eta),
+    enabled: Boolean(row.enabled),
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
 function mapDepositRow(row: Record<string, unknown>): DepositRequestRecord {
+  const amount = Number(row.amount);
+  const exchangeRate =
+    row.exchange_rate != null && Number(row.exchange_rate) > 0
+      ? Number(row.exchange_rate)
+      : USD_TO_IDR_RATE;
+  const amountIdr =
+    row.amount_idr != null && Number(row.amount_idr) > 0
+      ? Number(row.amount_idr)
+      : Math.round(amount * exchangeRate);
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -343,7 +429,9 @@ function mapDepositRow(row: Record<string, unknown>): DepositRequestRecord {
     accountId: String(row.account_id),
     method: String(row.method),
     reference: String(row.reference),
-    amount: Number(row.amount),
+    amount,
+    amountIdr,
+    exchangeRate,
     currency: "USD",
     proofImage: row.proof_image ? String(row.proof_image) : undefined,
     proofFileName: row.proof_file_name ? String(row.proof_file_name) : undefined,
@@ -374,6 +462,12 @@ function mapWithdrawRow(row: Record<string, unknown>): WithdrawRequestRecord {
 }
 
 function mapPositionRow(row: Record<string, unknown>): TradePosition {
+  const lot = Number(row.lot);
+  const rawStake = row.stake_usd != null ? Number(row.stake_usd) : Number.NaN;
+  const stakeUsd =
+    Number.isFinite(rawStake) && rawStake > 0
+      ? Number(rawStake.toFixed(2))
+      : resolvePositionStakeUsd({ lot });
   return {
     id: String(row.id),
     userId: String(row.user_id),
@@ -382,14 +476,22 @@ function mapPositionRow(row: Record<string, unknown>): TradePosition {
     symbol: String(row.symbol),
     type: row.order_type === "Limit" ? "Limit" : "Market",
     side: row.side === "SELL" ? "SELL" : "BUY",
-    lot: Number(row.lot),
+    lot,
+    stakeUsd,
     leverage: Number(row.leverage),
     entry: Number(row.entry_price),
     sl: String(row.stop_loss),
     tp: String(row.take_profit),
     pnl: Number(row.pnl),
+    adminProfitUsd:
+      row.admin_profit_usd != null && Number.isFinite(Number(row.admin_profit_usd))
+        ? Number(row.admin_profit_usd)
+        : undefined,
     status: row.status as TradePosition["status"],
     openedAt: String(row.opened_at),
+    openedAtMs: row.opened_at_ms != null ? Number(row.opened_at_ms) : 0,
+    unlockAtMs: row.unlock_at_ms != null ? Number(row.unlock_at_ms) : 0,
+    openedDate: row.opened_date ? String(row.opened_date) : "",
   };
 }
 
@@ -509,9 +611,12 @@ export function getStorageStatus() {
 }
 
 let tickFlushCounter = 0;
+let autoClosingInProgress = false;
 
 export function runMarketTickCycle(): void {
   stepMarketTicks();
+  void db.autoCloseExpiredPositions().catch(() => {});
+
   if (!pgReady || !pool) return;
 
   tickFlushCounter += 1;
@@ -885,7 +990,401 @@ export const db = {
     return true;
   },
 
+  async getWalletLimits(): Promise<WalletLimitsRecord> {
+    if (!pgReady || !pool) {
+      return { ...memoryStore.walletLimits };
+    }
+    const res = await pool.query(`SELECT * FROM wallet_limits WHERE id = 'default' LIMIT 1`);
+    if (res.rows.length === 0) {
+      return { ...memoryStore.walletLimits };
+    }
+    const row = res.rows[0] as Record<string, unknown>;
+    return {
+      minDeposit: Number(row.min_deposit),
+      maxDeposit: Number(row.max_deposit),
+      minWithdraw: Number(row.min_withdraw),
+      maxWithdraw: Number(row.max_withdraw),
+      updatedBy: row.updated_by ? String(row.updated_by) : undefined,
+      updatedAt: row.updated_at
+        ? new Date(String(row.updated_at)).toLocaleString("id-ID")
+        : undefined,
+    };
+  },
+
+  async updateWalletLimits(
+    partial: Partial<
+      Pick<WalletLimitsRecord, "minDeposit" | "maxDeposit" | "minWithdraw" | "maxWithdraw">
+    >,
+    adminEmail: string,
+  ): Promise<{ error?: string; limits?: WalletLimitsRecord }> {
+    const current = await this.getWalletLimits();
+    const minDeposit =
+      typeof partial.minDeposit === "number" && Number.isFinite(partial.minDeposit)
+        ? Number(partial.minDeposit.toFixed(2))
+        : current.minDeposit;
+    const maxDeposit =
+      typeof partial.maxDeposit === "number" && Number.isFinite(partial.maxDeposit)
+        ? Number(partial.maxDeposit.toFixed(2))
+        : current.maxDeposit;
+    const minWithdraw =
+      typeof partial.minWithdraw === "number" && Number.isFinite(partial.minWithdraw)
+        ? Number(partial.minWithdraw.toFixed(2))
+        : current.minWithdraw;
+    const maxWithdraw =
+      typeof partial.maxWithdraw === "number" && Number.isFinite(partial.maxWithdraw)
+        ? Number(partial.maxWithdraw.toFixed(2))
+        : current.maxWithdraw;
+
+    if (minDeposit < 1 || minWithdraw < 1) {
+      return { error: "Nominal minimal deposit dan withdraw harus minimal $1.00." };
+    }
+    if (maxDeposit < minDeposit) {
+      return { error: "Maksimal deposit tidak boleh lebih kecil daripada minimal deposit." };
+    }
+    if (maxWithdraw < minWithdraw) {
+      return { error: "Maksimal withdraw tidak boleh lebih kecil daripada minimal withdraw." };
+    }
+
+    const updatedAt = `Hari ini · ${nowWibLabel()}`;
+    const next: WalletLimitsRecord = {
+      minDeposit,
+      maxDeposit,
+      minWithdraw,
+      maxWithdraw,
+      updatedBy: adminEmail,
+      updatedAt,
+    };
+    memoryStore.walletLimits = next;
+
+    const logEntry: AuditLogRecord = {
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: updatedAt,
+      actor: adminEmail,
+      action: "Atur Batas Deposit & Withdraw",
+      target: "Kebijakan Wallet",
+      detail: `Deposit: $${minDeposit.toFixed(2)}–$${maxDeposit.toFixed(2)} · Withdraw: $${minWithdraw.toFixed(2)}–$${maxWithdraw.toFixed(2)}`,
+    };
+
+    if (pgReady && pool) {
+      await pool.query(
+        `INSERT INTO wallet_limits (id, min_deposit, max_deposit, min_withdraw, max_withdraw, updated_by, updated_at)
+         VALUES ('default', $1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (id) DO UPDATE
+         SET min_deposit = $1, max_deposit = $2, min_withdraw = $3, max_withdraw = $4, updated_by = $5, updated_at = NOW()`,
+        [minDeposit, maxDeposit, minWithdraw, maxWithdraw, adminEmail],
+      );
+      await this.appendAuditLog(logEntry);
+    } else {
+      memoryStore.auditLogs = [logEntry, ...memoryStore.auditLogs];
+    }
+
+    return { limits: next };
+  },
+
+  async getTradingRules(): Promise<TradingRulesRecord> {
+    if (!pgReady || !pool) {
+      return { ...memoryStore.tradingRules };
+    }
+    const res = await pool.query(`SELECT * FROM trading_rules WHERE id = 'default' LIMIT 1`);
+    if (res.rows.length === 0) {
+      return { ...memoryStore.tradingRules };
+    }
+    const row = res.rows[0] as Record<string, unknown>;
+    const rawPct =
+      row.default_profit_percent != null ? Number(row.default_profit_percent) : Number.NaN;
+    return {
+      maxDailyPositions: Math.max(1, Math.round(Number(row.max_daily_positions) || 5)),
+      minCloseMinutes: Math.max(1, Math.round(Number(row.min_close_minutes) || 5)),
+      defaultProfitPercent: Number.isFinite(rawPct) && rawPct > 0 ? Number(rawPct.toFixed(2)) : 10,
+      updatedBy: row.updated_by ? String(row.updated_by) : undefined,
+      updatedAt: row.updated_at
+        ? new Date(String(row.updated_at)).toLocaleString("id-ID")
+        : undefined,
+    };
+  },
+
+  async updateTradingRules(
+    partial: Partial<
+      Pick<TradingRulesRecord, "maxDailyPositions" | "minCloseMinutes" | "defaultProfitPercent">
+    >,
+    adminEmail: string,
+  ): Promise<{ error?: string; rules?: TradingRulesRecord }> {
+    const current = await this.getTradingRules();
+    const maxDailyPositions =
+      typeof partial.maxDailyPositions === "number" && Number.isFinite(partial.maxDailyPositions)
+        ? Math.round(partial.maxDailyPositions)
+        : current.maxDailyPositions;
+    const minCloseMinutes =
+      typeof partial.minCloseMinutes === "number" && Number.isFinite(partial.minCloseMinutes)
+        ? Math.round(partial.minCloseMinutes)
+        : current.minCloseMinutes;
+    const defaultProfitPercent =
+      typeof partial.defaultProfitPercent === "number" &&
+      Number.isFinite(partial.defaultProfitPercent)
+        ? Number(partial.defaultProfitPercent.toFixed(2))
+        : (current.defaultProfitPercent ?? 10);
+
+    if (maxDailyPositions < 1 || maxDailyPositions > 500) {
+      return { error: "Maksimal open posisi per hari harus antara 1 sampai 500 kali." };
+    }
+    if (minCloseMinutes < 1 || minCloseMinutes > 10080) {
+      return { error: "Minimal waktu tutup posisi harus antara 1 menit hingga 168 jam (7 hari)." };
+    }
+    if (defaultProfitPercent < 0.1 || defaultProfitPercent > 1000) {
+      return { error: "Persentase keuntungan default harus antara 0.1% sampai 1000%." };
+    }
+
+    const updatedAt = `Hari ini · ${nowWibLabel()}`;
+    const next: TradingRulesRecord = {
+      maxDailyPositions,
+      minCloseMinutes,
+      defaultProfitPercent,
+      updatedBy: adminEmail,
+      updatedAt,
+    };
+    memoryStore.tradingRules = next;
+
+    const logEntry: AuditLogRecord = {
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: updatedAt,
+      actor: adminEmail,
+      action: "Atur Aturan Trading",
+      target: "Kebijakan Trading Global",
+      detail: `Maks ${maxDailyPositions} open/hari · Minimal tutup ${formatMinCloseDuration(minCloseMinutes)} · Default keuntungan ${defaultProfitPercent}%`,
+    };
+
+    if (pgReady && pool) {
+      await pool.query(
+        `INSERT INTO trading_rules (id, max_daily_positions, min_close_minutes, default_profit_percent, updated_by, updated_at)
+         VALUES ('default', $1, $2, $3, $4, NOW())
+         ON CONFLICT (id) DO UPDATE
+         SET max_daily_positions = $1, min_close_minutes = $2, default_profit_percent = $3, updated_by = $4, updated_at = NOW()`,
+        [maxDailyPositions, minCloseMinutes, defaultProfitPercent, adminEmail],
+      );
+      await this.appendAuditLog(logEntry);
+    } else {
+      memoryStore.auditLogs = [logEntry, ...memoryStore.auditLogs];
+    }
+
+    return { rules: next };
+  },
+
+  async getTraderTradingSummary(): Promise<{
+    rules: TradingRulesRecord;
+    todayOpenCount: number;
+    todayDate: string;
+  }> {
+    const rules = await this.getTradingRules();
+    const todayDate = getWibDateKey();
+
+    if (!pgReady || !pool) {
+      const todayOpenCount = memoryStore.positions.filter(
+        (p) => p.accountId === memoryStore.profile.accountId && p.openedDate === todayDate,
+      ).length;
+      return { rules, todayOpenCount, todayDate };
+    }
+
+    const { userRow } = await getActiveTraderRow(pool);
+    const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM positions WHERE account_id = $1 AND opened_date = $2`,
+      [accountId, todayDate],
+    );
+    const todayOpenCount = Number(countRes.rows[0]?.cnt ?? 0);
+    return { rules, todayOpenCount, todayDate };
+  },
+
+  async getDepositMethods(includeDisabled = false): Promise<DepositMethodRecord[]> {
+    if (!pgReady || !pool) {
+      return includeDisabled
+        ? [...memoryStore.depositMethods]
+        : memoryStore.depositMethods.filter((m) => m.enabled);
+    }
+    const res = await pool.query(
+      includeDisabled
+        ? `SELECT * FROM deposit_methods ORDER BY sort_order ASC, created_at ASC`
+        : `SELECT * FROM deposit_methods WHERE enabled = TRUE ORDER BY sort_order ASC, created_at ASC`,
+    );
+    return res.rows.map(mapDepositMethodRow);
+  },
+
+  async createDepositMethod(
+    input: {
+      label: string;
+      accountInfo: string;
+      accountHolder: string;
+      fee: string;
+      eta: string;
+      enabled?: boolean;
+    },
+    adminEmail: string,
+  ): Promise<{ error?: string; method?: DepositMethodRecord }> {
+    const label = input.label.trim();
+    const accountInfo = input.accountInfo.trim();
+    const accountHolder = input.accountHolder.trim();
+    const fee = input.fee.trim() || "Gratis (0%)";
+    const eta = input.eta.trim() || "5–15 menit setelah verifikasi admin";
+    if (!label || !accountInfo || !accountHolder) {
+      return { error: "Nama metode, nomor rekening/tujuan, dan nama penerima wajib diisi." };
+    }
+
+    const baseSlug = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")
+      .slice(0, 24);
+    const id = `${baseSlug || "metode"}-${Math.floor(100 + Math.random() * 899)}`;
+    const existingMethods = await this.getDepositMethods(true);
+    const sortOrder =
+      existingMethods.reduce((max, cur) => Math.max(max, cur.sortOrder ?? 0), 0) + 1;
+
+    const created: DepositMethodRecord = {
+      id,
+      label,
+      accountInfo,
+      accountHolder,
+      fee,
+      eta,
+      enabled: input.enabled ?? true,
+      sortOrder,
+    };
+
+    const logEntry: AuditLogRecord = {
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Tambah Metode Deposit",
+      target: created.label,
+      detail: `${created.accountInfo} (${created.accountHolder})`,
+    };
+
+    memoryStore.depositMethods = [...memoryStore.depositMethods, created];
+
+    if (pgReady && pool) {
+      await pool.query(
+        `INSERT INTO deposit_methods (id, label, account_info, account_holder, fee, eta, enabled, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          created.id,
+          created.label,
+          created.accountInfo,
+          created.accountHolder,
+          created.fee,
+          created.eta,
+          created.enabled,
+          created.sortOrder ?? 0,
+        ],
+      );
+      await this.appendAuditLog(logEntry);
+    } else {
+      memoryStore.auditLogs = [logEntry, ...memoryStore.auditLogs];
+    }
+
+    return { method: created };
+  },
+
+  async updateDepositMethod(
+    id: string,
+    patch: Partial<Omit<DepositMethodRecord, "id">>,
+    adminEmail: string,
+  ): Promise<{ error?: string; method?: DepositMethodRecord }> {
+    const methods = await this.getDepositMethods(true);
+    const target = methods.find((m) => m.id === id);
+    if (!target) {
+      return { error: "Metode pembayaran deposit tidak ditemukan." };
+    }
+
+    const updated: DepositMethodRecord = {
+      ...target,
+      label: patch.label !== undefined ? patch.label.trim() || target.label : target.label,
+      accountInfo:
+        patch.accountInfo !== undefined
+          ? patch.accountInfo.trim() || target.accountInfo
+          : target.accountInfo,
+      accountHolder:
+        patch.accountHolder !== undefined
+          ? patch.accountHolder.trim() || target.accountHolder
+          : target.accountHolder,
+      fee: patch.fee !== undefined ? patch.fee.trim() || target.fee : target.fee,
+      eta: patch.eta !== undefined ? patch.eta.trim() || target.eta : target.eta,
+      enabled: typeof patch.enabled === "boolean" ? patch.enabled : target.enabled,
+      sortOrder: typeof patch.sortOrder === "number" ? patch.sortOrder : target.sortOrder,
+    };
+
+    memoryStore.depositMethods = memoryStore.depositMethods.map((m) => (m.id === id ? updated : m));
+
+    const logEntry: AuditLogRecord = {
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Ubah Metode Deposit",
+      target: updated.label,
+      detail: `${updated.accountInfo} · Status: ${updated.enabled ? "Aktif" : "Nonaktif"}`,
+    };
+
+    if (pgReady && pool) {
+      await pool.query(
+        `UPDATE deposit_methods
+         SET label = $1, account_info = $2, account_holder = $3, fee = $4, eta = $5, enabled = $6, sort_order = $7
+         WHERE id = $8`,
+        [
+          updated.label,
+          updated.accountInfo,
+          updated.accountHolder,
+          updated.fee,
+          updated.eta,
+          updated.enabled,
+          updated.sortOrder ?? 0,
+          id,
+        ],
+      );
+      await this.appendAuditLog(logEntry);
+    } else {
+      memoryStore.auditLogs = [logEntry, ...memoryStore.auditLogs];
+    }
+
+    return { method: updated };
+  },
+
+  async deleteDepositMethod(
+    id: string,
+    adminEmail: string,
+  ): Promise<{ error?: string; ok?: boolean }> {
+    const methods = await this.getDepositMethods(true);
+    const target = methods.find((m) => m.id === id);
+    if (!target) {
+      return { error: "Metode pembayaran deposit tidak ditemukan." };
+    }
+    if (methods.length <= 1) {
+      return { error: "Minimal harus ada 1 metode pembayaran deposit yang tersedia." };
+    }
+
+    memoryStore.depositMethods = memoryStore.depositMethods.filter((m) => m.id !== id);
+
+    const logEntry: AuditLogRecord = {
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Hapus Metode Deposit",
+      target: target.label,
+      detail: `Rekening ${target.accountInfo} dihapus oleh admin.`,
+    };
+
+    if (pgReady && pool) {
+      await pool.query(`DELETE FROM deposit_methods WHERE id = $1`, [id]);
+      await this.appendAuditLog(logEntry);
+    } else {
+      memoryStore.auditLogs = [logEntry, ...memoryStore.auditLogs];
+    }
+
+    return { ok: true };
+  },
+
   async getWalletTransactions() {
+    const [limits, depositMethods] = await Promise.all([
+      this.getWalletLimits(),
+      this.getDepositMethods(false),
+    ]);
     if (!pgReady || !pool) {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
@@ -896,6 +1395,9 @@ export const db = {
         withdrawals: memoryStore.withdrawals.filter(
           (w) => w.accountId === memoryStore.profile.accountId,
         ),
+        limits,
+        depositMethods,
+        idrPerUsd: USD_TO_IDR_RATE,
       };
     }
 
@@ -914,16 +1416,23 @@ export const db = {
       balance: Number(userRow?.balance ?? 24510),
       deposits: depRes.rows.map(mapDepositRow),
       withdrawals: wdRes.rows.map(mapWithdrawRow),
+      limits,
+      depositMethods,
+      idrPerUsd: USD_TO_IDR_RATE,
     };
   },
 
   async createDeposit(input: {
     amount: number;
+    amountIdr?: number;
+    exchangeRate?: number;
     method: string;
     reference: string;
     proofImage: string;
     proofFileName: string;
   }): Promise<DepositRequestRecord> {
+    const exchangeRate = input.exchangeRate ?? USD_TO_IDR_RATE;
+    const amountIdr = input.amountIdr ?? Math.round(input.amount * exchangeRate);
     if (!pgReady || !pool) {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
@@ -937,6 +1446,8 @@ export const db = {
         method: input.method,
         reference: input.reference,
         amount: input.amount,
+        amountIdr,
+        exchangeRate,
         currency: "USD",
         proofImage: input.proofImage,
         proofFileName: input.proofFileName,
@@ -957,6 +1468,8 @@ export const db = {
       method: input.method,
       reference: input.reference,
       amount: input.amount,
+      amountIdr,
+      exchangeRate,
       currency: "USD",
       proofImage: input.proofImage,
       proofFileName: input.proofFileName,
@@ -967,9 +1480,9 @@ export const db = {
     await pool.query(
       `INSERT INTO deposit_requests (
          id, user_id, user_name, user_email, account_id, method, reference,
-         amount, currency, proof_image, proof_file_name, status, submitted_at
+         amount, amount_idr, exchange_rate, currency, proof_image, proof_file_name, status, submitted_at
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [
         created.id,
         created.userId,
@@ -979,6 +1492,8 @@ export const db = {
         created.method,
         created.reference,
         created.amount,
+        created.amountIdr,
+        created.exchangeRate,
         created.currency,
         created.proofImage ?? null,
         created.proofFileName ?? null,
@@ -1056,6 +1571,7 @@ export const db = {
   },
 
   async getUserPositions(): Promise<TradePosition[]> {
+    await this.autoCloseExpiredPositions();
     if (!pgReady || !pool) {
       return memoryStore.positions.filter((p) => p.accountId === memoryStore.profile.accountId);
     }
@@ -1068,33 +1584,69 @@ export const db = {
     return res.rows.map(mapPositionRow);
   },
 
-  async createPosition(body: Partial<TradePosition>): Promise<{
+  async createPosition(
+    body: Partial<TradePosition> & { stakeUsd?: number; amountIdr?: number },
+  ): Promise<{
     error?: string;
     position?: TradePosition;
   }> {
     const symbol = (body.symbol ?? "EURUSD").toUpperCase();
     const spec = memoryStore.markets.find((m) => m.symbol === symbol);
-    const lot = Math.max(0.01, Math.min(50, Number(body.lot) || 0.1));
+    const rules = await this.getTradingRules();
+    const todayDate = getWibDateKey();
+
+    const rawIdr =
+      body.amountIdr !== undefined && body.amountIdr !== null ? Number(body.amountIdr) : Number.NaN;
+    const rawUsd =
+      body.stakeUsd !== undefined && body.stakeUsd !== null ? Number(body.stakeUsd) : Number.NaN;
+    let stakeUsd =
+      Number.isFinite(rawUsd) && rawUsd > 0
+        ? Number(rawUsd.toFixed(2))
+        : Number.isFinite(rawIdr) && rawIdr > 0
+          ? Number((rawIdr / USD_TO_IDR_RATE).toFixed(2))
+          : Number(body.lot) > 0
+            ? Number((Number(body.lot) * 1000).toFixed(2))
+            : 100;
+
+    if (!Number.isFinite(stakeUsd) || stakeUsd < 1) {
+      return { error: "Nominal posisi minimal $1.00 (Rp 17.000)." };
+    }
+    stakeUsd = Number(stakeUsd.toFixed(2));
+    const lot = Number(Math.max(0.01, Math.min(50, stakeUsd / 1000)).toFixed(2));
+    const isLimit = body.type === "Limit";
+    const nowMs = Date.now();
+    const openedAtMs = isLimit ? 0 : nowMs;
+    const unlockAtMs = isLimit ? 0 : nowMs + rules.minCloseMinutes * 60_000;
 
     if (!pgReady || !pool) {
       const currentUser = memoryStore.users.find(
         (u) => u.accountId === memoryStore.profile.accountId,
       );
+      const userPositions = memoryStore.positions.filter(
+        (p) => p.accountId === memoryStore.profile.accountId,
+      );
+      const todayCount = userPositions.filter((p) => p.openedDate === todayDate).length;
+      if (todayCount >= rules.maxDailyPositions) {
+        return {
+          error: `Batas maksimal open posisi hari ini telah tercapai (${todayCount}/${rules.maxDailyPositions} kali/hari). Silakan lanjutkan besok.`,
+        };
+      }
+
+      const activeStakeUsed = userPositions
+        .filter((p) => p.status === "Terbuka")
+        .reduce((acc, cur) => acc + resolvePositionStakeUsd(cur), 0);
+      const freeCapital = Math.max(0, (currentUser?.balance ?? 24510) - activeStakeUsed);
+      if (stakeUsd > freeCapital) {
+        return {
+          error: `Saldo bebas tidak mencukupi ($${freeCapital.toFixed(2)} tersedia, nominal dipilih $${stakeUsd.toFixed(2)}).`,
+        };
+      }
+
       const leverage = Math.max(
         50,
         Math.min(1000, Number(body.leverage) || memoryStore.profile.leverage || 500),
       );
       const entry = Number(body.entry) || spec?.bid || 1.0845;
-      const notionalUsd = spec
-        ? spec.quoteInJpy
-          ? lot * spec.contractSize
-          : lot * spec.contractSize * entry
-        : lot * 100000 * entry;
-      const estimatedMargin = notionalUsd / leverage;
-
-      if (currentUser && estimatedMargin > currentUser.balance) {
-        return { error: "Margin bebas tidak mencukupi untuk volume lot dan leverage ini." };
-      }
 
       const order: TradePosition = {
         id: `ORD-${Math.floor(9050 + Math.random() * 900)}`,
@@ -1102,61 +1654,93 @@ export const db = {
         userName: currentUser?.name ?? memoryStore.profile.name,
         accountId: memoryStore.profile.accountId,
         symbol,
-        type: body.type === "Limit" ? "Limit" : "Market",
+        type: isLimit ? "Limit" : "Market",
         side: body.side === "SELL" ? "SELL" : "BUY",
         lot,
+        stakeUsd,
         leverage,
         entry,
         sl: body.sl || "-",
         tp: body.tp || "-",
         pnl: 0,
-        status: body.type === "Limit" ? "Tertunda" : "Terbuka",
+        status: isLimit ? "Tertunda" : "Terbuka",
         openedAt: nowWibLabel(),
+        openedAtMs,
+        unlockAtMs,
+        openedDate: todayDate,
       };
+      order.pnl = isLimit
+        ? 0
+        : computePositionFloatingPnl(order, spec, nowMs, rules.defaultProfitPercent);
       memoryStore.positions = [order, ...memoryStore.positions];
       return { position: order };
     }
 
     const { userRow } = await getActiveTraderRow(pool);
+    const accountId = String(userRow?.account_id ?? memoryStore.profile.accountId);
     const userBalance = Number(userRow?.balance ?? 24510);
     const userLeverage = Number(userRow?.leverage ?? 500);
+
+    const [todayRes, activeRes] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::int AS cnt FROM positions WHERE account_id = $1 AND opened_date = $2`,
+        [accountId, todayDate],
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(stake_usd), 0)::numeric AS used_stake FROM positions WHERE account_id = $1 AND status = 'Terbuka'`,
+        [accountId],
+      ),
+    ]);
+    const todayCount = Number(todayRes.rows[0]?.cnt ?? 0);
+    if (todayCount >= rules.maxDailyPositions) {
+      return {
+        error: `Batas maksimal open posisi hari ini telah tercapai (${todayCount}/${rules.maxDailyPositions} kali/hari). Silakan lanjutkan besok.`,
+      };
+    }
+
+    const activeStakeUsed = Number(activeRes.rows[0]?.used_stake ?? 0);
+    const freeCapital = Math.max(0, userBalance - activeStakeUsed);
+    if (stakeUsd > freeCapital) {
+      return {
+        error: `Saldo bebas tidak mencukupi ($${freeCapital.toFixed(2)} tersedia, nominal dipilih $${stakeUsd.toFixed(2)}).`,
+      };
+    }
+
     const leverage = Math.max(50, Math.min(1000, Number(body.leverage) || userLeverage || 500));
     const entry = Number(body.entry) || spec?.bid || 1.0845;
-    const notionalUsd = spec
-      ? spec.quoteInJpy
-        ? lot * spec.contractSize
-        : lot * spec.contractSize * entry
-      : lot * 100000 * entry;
-    const estimatedMargin = notionalUsd / leverage;
-
-    if (userRow && estimatedMargin > userBalance) {
-      return { error: "Margin bebas tidak mencukupi untuk volume lot dan leverage ini." };
-    }
 
     const order: TradePosition = {
       id: `ORD-${Math.floor(9050 + Math.random() * 900)}`,
       userId: String(userRow?.id ?? "USR-01"),
       userName: String(userRow?.name ?? memoryStore.profile.name),
-      accountId: String(userRow?.account_id ?? memoryStore.profile.accountId),
+      accountId,
       symbol,
-      type: body.type === "Limit" ? "Limit" : "Market",
+      type: isLimit ? "Limit" : "Market",
       side: body.side === "SELL" ? "SELL" : "BUY",
       lot,
+      stakeUsd,
       leverage,
       entry,
       sl: body.sl || "-",
       tp: body.tp || "-",
       pnl: 0,
-      status: body.type === "Limit" ? "Tertunda" : "Terbuka",
+      status: isLimit ? "Tertunda" : "Terbuka",
       openedAt: nowWibLabel(),
+      openedAtMs,
+      unlockAtMs,
+      openedDate: todayDate,
     };
+    order.pnl = isLimit
+      ? 0
+      : computePositionFloatingPnl(order, spec, nowMs, rules.defaultProfitPercent);
 
     await pool.query(
       `INSERT INTO positions (
          id, user_id, user_name, account_id, symbol, order_type, side,
-         lot, leverage, entry_price, stop_loss, take_profit, pnl, status, opened_at
+         lot, stake_usd, leverage, entry_price, stop_loss, take_profit, pnl, status,
+         opened_at, opened_at_ms, unlock_at_ms, opened_date
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [
         order.id,
         order.userId,
@@ -1166,6 +1750,7 @@ export const db = {
         order.type,
         order.side,
         order.lot,
+        order.stakeUsd ?? stakeUsd,
         order.leverage,
         order.entry,
         order.sl,
@@ -1173,38 +1758,76 @@ export const db = {
         order.pnl,
         order.status,
         order.openedAt,
+        order.openedAtMs ?? 0,
+        order.unlockAtMs ?? 0,
+        order.openedDate ?? todayDate,
       ],
     );
     return { position: order };
   },
 
   async activatePosition(id: string): Promise<TradePosition | null> {
+    const rules = await this.getTradingRules();
+    const nowMs = Date.now();
+    const unlockAtMs = nowMs + rules.minCloseMinutes * 60_000;
+    const todayDate = getWibDateKey();
+
     if (!pgReady || !pool) {
       const target = memoryStore.positions.find((p) => p.id === id);
       if (!target) return null;
       if (target.status !== "Tertunda") return target;
-      memoryStore.positions = memoryStore.positions.map((p) =>
-        p.id === id ? { ...p, status: "Terbuka", openedAt: nowWibLabel() } : p,
+      const spec = memoryStore.markets.find((m) => m.symbol === target.symbol);
+      const activated: TradePosition = {
+        ...target,
+        status: "Terbuka",
+        openedAt: nowWibLabel(),
+        openedAtMs: nowMs,
+        unlockAtMs,
+        openedDate: target.openedDate || todayDate,
+      };
+      activated.pnl = computePositionFloatingPnl(
+        activated,
+        spec,
+        nowMs,
+        rules.defaultProfitPercent,
       );
-      return memoryStore.positions.find((p) => p.id === id) ?? null;
+      memoryStore.positions = memoryStore.positions.map((p) => (p.id === id ? activated : p));
+      return activated;
     }
 
     const existing = await pool.query(`SELECT * FROM positions WHERE id = $1`, [id]);
     if (existing.rows.length === 0) return null;
     const pos = mapPositionRow(existing.rows[0] as Record<string, unknown>);
     if (pos.status !== "Tertunda") return pos;
+    const spec = memoryStore.markets.find((m) => m.symbol === pos.symbol);
+    const initialPnl = computePositionFloatingPnl(
+      { ...pos, status: "Terbuka", openedAtMs: nowMs, unlockAtMs },
+      spec,
+      nowMs,
+      rules.defaultProfitPercent,
+    );
 
     const updated = await pool.query(
-      `UPDATE positions SET status = 'Terbuka', opened_at = $1 WHERE id = $2 RETURNING *`,
-      [nowWibLabel(), id],
+      `UPDATE positions
+       SET status = 'Terbuka', opened_at = $1, opened_at_ms = $2, unlock_at_ms = $3, opened_date = $4, pnl = $5
+       WHERE id = $6 RETURNING *`,
+      [nowWibLabel(), nowMs, unlockAtMs, pos.openedDate || todayDate, initialPnl, id],
     );
     return mapPositionRow(updated.rows[0] as Record<string, unknown>);
   },
 
   async closePosition(
     id: string,
-    pnlInput?: number,
-  ): Promise<{ position: TradePosition; balance: number } | null> {
+    _pnlInput?: number,
+  ): Promise<{
+    error?: string;
+    status?: number;
+    unlockAtMs?: number;
+    position?: TradePosition;
+    balance?: number;
+  } | null> {
+    const nowMs = Date.now();
+
     if (!pgReady || !pool) {
       const existing = memoryStore.positions.find((p) => p.id === id);
       if (!existing) return null;
@@ -1212,15 +1835,27 @@ export const db = {
         const cur = memoryStore.users.find((u) => u.accountId === existing.accountId);
         return { position: existing, balance: cur?.balance ?? 24510 };
       }
+
       const wasOpen = existing.status === "Terbuka";
-      const settledPnl =
-        wasOpen && typeof pnlInput === "number" && Number.isFinite(pnlInput)
-          ? Number(pnlInput.toFixed(2))
-          : existing.pnl;
+      if (wasOpen && existing.unlockAtMs && nowMs < existing.unlockAtMs) {
+        const countdown = formatHoldCountdown(existing.unlockAtMs, nowMs);
+        return {
+          error: `Posisi masih terkunci. Waktu minimal tutup posisi tersisa ${countdown.label}.`,
+          status: 400,
+          unlockAtMs: existing.unlockAtMs,
+        };
+      }
+
+      const rules = await this.getTradingRules();
+      const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
+      const settledPnl = wasOpen
+        ? computePositionFloatingPnl(existing, market, nowMs, rules.defaultProfitPercent)
+        : 0;
+
       memoryStore.positions = memoryStore.positions.map((p) =>
-        p.id === id ? { ...p, status: "Ditutup", pnl: wasOpen ? settledPnl : 0 } : p,
+        p.id === id ? { ...p, status: "Ditutup", pnl: settledPnl } : p,
       );
-      if (wasOpen && settledPnl !== 0) {
+      if (wasOpen && settledPnl > 0) {
         memoryStore.users = memoryStore.users.map((u) =>
           u.accountId === existing.accountId
             ? { ...u, balance: Number(Math.max(0, u.balance + settledPnl).toFixed(2)) }
@@ -1253,18 +1888,29 @@ export const db = {
       }
 
       const wasOpen = existing.status === "Terbuka";
-      const settledPnl =
-        wasOpen && typeof pnlInput === "number" && Number.isFinite(pnlInput)
-          ? Number(pnlInput.toFixed(2))
-          : existing.pnl;
+      if (wasOpen && existing.unlockAtMs && nowMs < existing.unlockAtMs) {
+        const countdown = formatHoldCountdown(existing.unlockAtMs, nowMs);
+        await client.query("ROLLBACK");
+        return {
+          error: `Posisi masih terkunci. Waktu minimal tutup posisi tersisa ${countdown.label}.`,
+          status: 400,
+          unlockAtMs: existing.unlockAtMs,
+        };
+      }
+
+      const rules = await this.getTradingRules();
+      const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
+      const settledPnl = wasOpen
+        ? computePositionFloatingPnl(existing, market, nowMs, rules.defaultProfitPercent)
+        : 0;
 
       const updatedPosRes = await client.query(
         `UPDATE positions SET status = 'Ditutup', pnl = $1 WHERE id = $2 RETURNING *`,
-        [wasOpen ? settledPnl : 0, id],
+        [settledPnl, id],
       );
 
       let nextBalance = 24510;
-      if (wasOpen && settledPnl !== 0) {
+      if (wasOpen && settledPnl > 0) {
         const uUpd = await client.query(
           `UPDATE users SET balance = GREATEST(0, ROUND((balance + $1)::numeric, 2))
            WHERE account_id = $2 RETURNING balance`,
@@ -1953,7 +2599,137 @@ export const db = {
     return res.rows.map(mapAuditRow);
   },
 
+  async autoCloseExpiredPositions(): Promise<number> {
+    if (autoClosingInProgress) return 0;
+    autoClosingInProgress = true;
+    try {
+      const nowMs = Date.now();
+      const rules = await this.getTradingRules();
+
+      if (!pgReady || !pool) {
+        const expired = memoryStore.positions.filter(
+          (p) =>
+            p.status === "Terbuka" &&
+            typeof p.unlockAtMs === "number" &&
+            p.unlockAtMs > 0 &&
+            nowMs >= p.unlockAtMs,
+        );
+        if (expired.length === 0) return 0;
+
+        for (const existing of expired) {
+          const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
+          const settledPnl = computePositionFloatingPnl(
+            existing,
+            market,
+            nowMs,
+            rules.defaultProfitPercent,
+          );
+          memoryStore.positions = memoryStore.positions.map((p) =>
+            p.id === existing.id ? { ...p, status: "Ditutup", pnl: settledPnl } : p,
+          );
+          if (settledPnl > 0) {
+            memoryStore.users = memoryStore.users.map((u) =>
+              u.id === existing.userId || u.accountId === existing.accountId
+                ? { ...u, balance: Number(Math.max(0, u.balance + settledPnl).toFixed(2)) }
+                : u,
+            );
+          }
+          memoryStore.auditLogs = [
+            {
+              id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+              timestamp: `Hari ini · ${nowWibLabel()}`,
+              actor: "sistem@ictrading.id",
+              action: "Tutup Posisi Otomatis",
+              target: `${existing.id} (${existing.accountId})`,
+              detail: `${existing.symbol} ${existing.side} · Realisasi keuntungan otomatis +$${settledPnl.toFixed(2)}`,
+            },
+            ...memoryStore.auditLogs,
+          ];
+        }
+        return expired.length;
+      }
+
+      const expiredRes = await pool.query(
+        `SELECT id FROM positions WHERE status = 'Terbuka' AND unlock_at_ms > 0 AND unlock_at_ms <= $1`,
+        [nowMs],
+      );
+      if (expiredRes.rows.length === 0) return 0;
+
+      let closedCount = 0;
+      for (const row of expiredRes.rows) {
+        const posId = String((row as Record<string, unknown>).id);
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          const locked = await client.query(`SELECT * FROM positions WHERE id = $1 FOR UPDATE`, [
+            posId,
+          ]);
+          if (locked.rows.length === 0) {
+            await client.query("ROLLBACK");
+            continue;
+          }
+          const existing = mapPositionRow(locked.rows[0] as Record<string, unknown>);
+          if (
+            existing.status !== "Terbuka" ||
+            !existing.unlockAtMs ||
+            existing.unlockAtMs <= 0 ||
+            nowMs < existing.unlockAtMs
+          ) {
+            await client.query("ROLLBACK");
+            continue;
+          }
+
+          const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
+          const settledPnl = computePositionFloatingPnl(
+            existing,
+            market,
+            nowMs,
+            rules.defaultProfitPercent,
+          );
+
+          await client.query(
+            `UPDATE positions SET status = 'Ditutup', pnl = $1 WHERE id = $2 AND status = 'Terbuka'`,
+            [settledPnl, posId],
+          );
+
+          if (settledPnl > 0) {
+            await client.query(
+              `UPDATE users SET balance = GREATEST(0, ROUND((balance + $1)::numeric, 2))
+               WHERE id = $2 OR account_id = $3`,
+              [settledPnl, existing.userId, existing.accountId],
+            );
+          }
+
+          await client.query(
+            `INSERT INTO audit_logs (id, timestamp_label, actor, action, target, detail)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [
+              `AUD-${Math.floor(110 + Math.random() * 890)}`,
+              `Hari ini · ${nowWibLabel()}`,
+              "sistem@ictrading.id",
+              "Tutup Posisi Otomatis",
+              `${existing.id} (${existing.accountId})`,
+              `${existing.symbol} ${existing.side} · Realisasi keuntungan otomatis +$${settledPnl.toFixed(2)}`,
+            ],
+          );
+
+          await client.query("COMMIT");
+          closedCount += 1;
+        } catch {
+          await client.query("ROLLBACK").catch(() => {});
+        } finally {
+          client.release();
+        }
+      }
+      return closedCount;
+    } finally {
+      autoClosingInProgress = false;
+    }
+  },
+
   async getAdminPositions() {
+    await this.autoCloseExpiredPositions();
+    const rules = await this.getTradingRules();
     const positions =
       !pgReady || !pool
         ? memoryStore.positions
@@ -1961,12 +2737,15 @@ export const db = {
             mapPositionRow,
           );
 
+    const nowMs = Date.now();
     return positions.map((pos) => {
       const market = memoryStore.markets.find((m) => m.symbol === pos.symbol);
       const currentPrice = market ? (pos.side === "BUY" ? market.bid : market.ask) : pos.entry;
-      const livePnl = computePositionFloatingPnl(pos, market);
+      const livePnl = computePositionFloatingPnl(pos, market, nowMs, rules.defaultProfitPercent);
+      const targetProfitUsd = resolveTargetProfitUsd(pos, rules.defaultProfitPercent);
       return {
         ...pos,
+        adminProfitUsd: pos.adminProfitUsd ?? targetProfitUsd,
         currentPrice,
         decimals: market?.decimals ?? 5,
         livePnl,
@@ -1974,14 +2753,107 @@ export const db = {
     });
   },
 
-  async adminClosePosition(id: string, adminEmail: string): Promise<TradePosition | null> {
+  async setPositionAdminProfit(
+    id: string,
+    profitUsd: number,
+    adminEmail: string,
+  ): Promise<{ error?: string; status?: number; position?: TradePosition & { livePnl: number } }> {
+    if (!Number.isFinite(profitUsd) || profitUsd < 0.5 || profitUsd > 1_000_000) {
+      return {
+        error: "Nominal keuntungan posisi harus antara $0.50 sampai $1,000,000.00 USD.",
+        status: 400,
+      };
+    }
+
+    const cleanProfit = Number(profitUsd.toFixed(2));
+    const rules = await this.getTradingRules();
+    const nowMs = Date.now();
+
+    if (!pgReady || !pool) {
+      const existing = memoryStore.positions.find((p) => p.id === id);
+      if (!existing) return { error: "Posisi tidak ditemukan.", status: 404 };
+      if (existing.status === "Ditutup") {
+        return {
+          error: "Posisi yang sudah ditutup tidak dapat diubah keuntungannya.",
+          status: 400,
+        };
+      }
+
+      const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
+      const draft: TradePosition = { ...existing, adminProfitUsd: cleanProfit };
+      const livePnl = computePositionFloatingPnl(draft, market, nowMs, rules.defaultProfitPercent);
+      const updated: TradePosition = {
+        ...draft,
+        pnl: existing.status === "Terbuka" ? livePnl : 0,
+      };
+      memoryStore.positions = memoryStore.positions.map((p) => (p.id === id ? updated : p));
+      memoryStore.auditLogs = [
+        {
+          id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+          timestamp: `Hari ini · ${nowWibLabel()}`,
+          actor: adminEmail,
+          action: "Atur Keuntungan Posisi",
+          target: `${existing.id} (${existing.accountId})`,
+          detail: `${existing.symbol} ${existing.side} — Target keuntungan ditetapkan $${cleanProfit.toFixed(2)} USD`,
+        },
+        ...memoryStore.auditLogs,
+      ];
+      return { position: { ...updated, livePnl } };
+    }
+
+    const cur = await pool.query(`SELECT * FROM positions WHERE id = $1`, [id]);
+    if (cur.rows.length === 0) return { error: "Posisi tidak ditemukan.", status: 404 };
+    const existing = mapPositionRow(cur.rows[0] as Record<string, unknown>);
+    if (existing.status === "Ditutup") {
+      return { error: "Posisi yang sudah ditutup tidak dapat diubah keuntungannya.", status: 400 };
+    }
+
+    const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
+    const livePnl = computePositionFloatingPnl(
+      { ...existing, adminProfitUsd: cleanProfit },
+      market,
+      nowMs,
+      rules.defaultProfitPercent,
+    );
+    const nextPnl = existing.status === "Terbuka" ? livePnl : 0;
+
+    const upd = await pool.query(
+      `UPDATE positions SET admin_profit_usd = $1, pnl = $2 WHERE id = $3 RETURNING *`,
+      [cleanProfit, nextPnl, id],
+    );
+
+    await this.appendAuditLog({
+      id: `AUD-${Math.floor(110 + Math.random() * 890)}`,
+      timestamp: `Hari ini · ${nowWibLabel()}`,
+      actor: adminEmail,
+      action: "Atur Keuntungan Posisi",
+      target: `${existing.id} (${existing.accountId})`,
+      detail: `${existing.symbol} ${existing.side} — Target keuntungan ditetapkan $${cleanProfit.toFixed(2)} USD`,
+    });
+
+    const saved = mapPositionRow(upd.rows[0] as Record<string, unknown>);
+    return { position: { ...saved, livePnl } };
+  },
+
+  async adminClosePosition(
+    id: string,
+    adminEmail: string,
+    overrideProfitUsd?: number,
+  ): Promise<TradePosition | null> {
+    const rules = await this.getTradingRules();
+    const nowMs = Date.now();
+
     if (!pgReady || !pool) {
       const existing = memoryStore.positions.find((p) => p.id === id);
       if (!existing) return null;
       if (existing.status === "Ditutup") return existing;
       const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
       const wasOpen = existing.status === "Terbuka";
-      const settledPnl = wasOpen ? computePositionFloatingPnl(existing, market) : 0;
+      const settledPnl = wasOpen
+        ? overrideProfitUsd !== undefined && Number.isFinite(overrideProfitUsd)
+          ? Number(overrideProfitUsd.toFixed(2))
+          : resolveTargetProfitUsd(existing, rules.defaultProfitPercent)
+        : 0;
 
       memoryStore.positions = memoryStore.positions.map((p) =>
         p.id === id ? { ...p, status: "Ditutup", pnl: settledPnl } : p,
@@ -2023,7 +2895,11 @@ export const db = {
 
       const market = memoryStore.markets.find((m) => m.symbol === existing.symbol);
       const wasOpen = existing.status === "Terbuka";
-      const settledPnl = wasOpen ? computePositionFloatingPnl(existing, market) : 0;
+      const settledPnl = wasOpen
+        ? overrideProfitUsd !== undefined && Number.isFinite(overrideProfitUsd)
+          ? Number(overrideProfitUsd.toFixed(2))
+          : resolveTargetProfitUsd(existing, rules.defaultProfitPercent)
+        : 0;
 
       const upd = await client.query(
         `UPDATE positions SET status = 'Ditutup', pnl = $1 WHERE id = $2 RETURNING *`,

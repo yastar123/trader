@@ -23,6 +23,7 @@ export function AccountPage({ mode }: AccountPageProps) {
     await syncLoginWithExpress({
       email: email || undefined,
       name: fullName || (email ? email.split("@")[0] : undefined),
+      isRegister,
     });
     void navigate({ to: "/beranda" });
   }

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, ArrowUpFromLine, CheckCircle2, ShieldAlert } from "lucide-react";
-import type { WithdrawRequestRecord } from "@/components/admin/admin-types";
+import type { WalletLimitsRecord, WithdrawRequestRecord } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
+import {
+  formatIdr,
+  formatMoneyPair,
+  formatUsd,
+  USD_TO_IDR_RATE,
+  type DisplayCurrency,
+} from "@/lib/currency";
 import { saveDemoSession, useDemoSession } from "@/lib/fe-session";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +28,12 @@ export function WithdrawView() {
   const { session } = useDemoSession();
   const [balance, setBalance] = useState<number>(session.balance ?? 24510);
   const [withdrawals, setWithdrawals] = useState<WithdrawRequestRecord[]>([]);
+  const [limits, setLimits] = useState<WalletLimitsRecord>({
+    minDeposit: 10,
+    maxDeposit: 50000,
+    minWithdraw: 10,
+    maxWithdraw: 25000,
+  });
   const [loading, setLoading] = useState(true);
   const withdrawPagination = usePagination(withdrawals, 5);
 
@@ -37,9 +50,11 @@ export function WithdrawView() {
         const json = (await res.json()) as {
           balance: number;
           withdrawals: WithdrawRequestRecord[];
+          limits?: WalletLimitsRecord;
         };
         setBalance(json.balance);
         setWithdrawals(json.withdrawals);
+        if (json.limits) setLimits(json.limits);
         saveDemoSession({ balance: json.balance });
       }
     } finally {
@@ -58,14 +73,36 @@ export function WithdrawView() {
   );
 
   const availableForWithdraw = Math.max(0, balance - pendingTotal);
+  const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
+  const balancePair = formatMoneyPair(balance, displayCurrency);
+  const pendingPair = formatMoneyPair(pendingTotal, displayCurrency);
+  const availablePair = formatMoneyPair(availableForWithdraw, displayCurrency);
+  const parsedAmount = Number(amountInput) > 0 ? Number(amountInput) : 0;
+  const estimatePair = formatMoneyPair(parsedAmount, displayCurrency);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
 
     const amount = Number(amountInput);
-    if (!Number.isFinite(amount) || amount < 10) {
-      setFeedback({ type: "err", text: "Nominal penarikan minimal $10.00 USD." });
+    if (!Number.isFinite(amount) || amount < limits.minWithdraw) {
+      setFeedback({
+        type: "err",
+        text: `Nominal penarikan minimal $${limits.minWithdraw.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} USD.`,
+      });
+      return;
+    }
+    if (amount > limits.maxWithdraw) {
+      setFeedback({
+        type: "err",
+        text: `Nominal penarikan maksimal $${limits.maxWithdraw.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} USD per transaksi.`,
+      });
       return;
     }
     if (amount > balance) {
@@ -143,37 +180,37 @@ export function WithdrawView() {
         <div className="rounded-xl border border-border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">Saldo Akun Saat Ini</p>
           <p className="mt-2 font-mono text-2xl font-bold tabular-nums text-foreground">
-            $
-            {balance.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            {balancePair.primary}
           </p>
-          <p className="mt-1.5 text-xs text-muted-foreground">
+          <p className="mt-1 font-mono text-xs tabular-nums text-primary">
+            ≈ {balancePair.secondary}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
             Terpotong otomatis saat penarikan disetujui admin
           </p>
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">Sedang Dalam Antrean Withdraw</p>
           <p className="mt-2 font-mono text-2xl font-bold tabular-nums text-amber-400">
-            $
-            {pendingTotal.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            {pendingPair.primary}
           </p>
-          <p className="mt-1.5 text-xs text-muted-foreground">Menunggu verifikasi manual admin</p>
+          <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+            ≈ {pendingPair.secondary}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Menunggu verifikasi manual admin</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">Batas Tersedia untuk Ditarik</p>
           <p className="mt-2 font-mono text-2xl font-bold tabular-nums text-primary">
-            $
-            {availableForWithdraw.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            {availablePair.primary}
           </p>
-          <p className="mt-1.5 text-xs text-muted-foreground">Minimal penarikan $10.00 USD</p>
+          <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+            ≈ {availablePair.secondary}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Min {formatUsd(limits.minWithdraw)} ({formatIdr(limits.minWithdraw * USD_TO_IDR_RATE)})
+            · Maks {formatUsd(limits.maxWithdraw)}
+          </p>
         </div>
       </section>
 
@@ -228,12 +265,16 @@ export function WithdrawView() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor="withdraw-amount" className="text-xs font-medium text-foreground">
                   3. Nominal Penarikan (USD)
                 </label>
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  Maks ${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  Min ${limits.minWithdraw.toLocaleString("en-US", { minimumFractionDigits: 2 })} ·
+                  Maks $
+                  {Math.min(balance, limits.maxWithdraw).toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                  })}
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -256,13 +297,18 @@ export function WithdrawView() {
               <Input
                 id="withdraw-amount"
                 type="number"
-                min={10}
+                min={limits.minWithdraw}
+                max={limits.maxWithdraw}
                 step="0.01"
                 required
                 value={amountInput}
                 onChange={(e) => setAmountInput(e.target.value)}
                 className="mt-2.5 h-11 bg-background font-mono text-base font-semibold tabular-nums"
               />
+              <p className="mt-1.5 font-mono text-xs tabular-nums text-primary">
+                Kurs 1 USD = {formatIdr(USD_TO_IDR_RATE)} → Setara{" "}
+                {formatIdr(parsedAmount * USD_TO_IDR_RATE)}
+              </p>
             </div>
 
             {feedback && (
@@ -311,12 +357,9 @@ export function WithdrawView() {
               </div>
               <div className="flex justify-between gap-4 py-3">
                 <dt className="text-muted-foreground">Estimasi Diterima</dt>
-                <dd className="text-right font-mono font-bold tabular-nums text-foreground">
-                  $
-                  {(Number(amountInput) > 0 ? Number(amountInput) : 0).toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                <dd className="text-right font-mono tabular-nums">
+                  <p className="font-bold text-foreground">{estimatePair.primary}</p>
+                  <p className="text-xs text-muted-foreground">≈ {estimatePair.secondary}</p>
                 </dd>
               </div>
             </dl>
@@ -391,8 +434,16 @@ export function WithdrawView() {
                     <td className="py-3 pr-4 font-mono text-xs text-foreground">
                       {item.destination}
                     </td>
-                    <td className="py-3 pr-4 text-right font-mono font-semibold tabular-nums text-foreground">
-                      ${item.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    <td className="py-3 pr-4 text-right font-mono tabular-nums text-foreground">
+                      {(() => {
+                        const rowPair = formatMoneyPair(item.amount, displayCurrency);
+                        return (
+                          <>
+                            <p className="font-semibold">{rowPair.primary}</p>
+                            <p className="text-[11px] text-muted-foreground">{rowPair.secondary}</p>
+                          </>
+                        );
+                      })()}
                     </td>
                     <td className="py-3 pr-4">
                       <span

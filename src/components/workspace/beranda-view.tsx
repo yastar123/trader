@@ -18,12 +18,23 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DepositRequestRecord, WithdrawRequestRecord } from "@/components/admin/admin-types";
+import {
+  formatIdr,
+  formatUsd,
+  USD_TO_IDR_RATE,
+  type DepositMethodRecord,
+  type DepositRequestRecord,
+  type MarketInstrumentRecord,
+  type WalletLimitsRecord,
+  type WithdrawRequestRecord,
+} from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
+import { formatMoneyPair, type DisplayCurrency } from "@/lib/currency";
 import { saveDemoSession, useDemoSession } from "@/lib/fe-session";
 import { readImageFileAsDataUrl } from "@/lib/image-upload";
+import { computeGuaranteedPositionPnl, resolvePositionStakeUsd } from "@/lib/trading";
 import { cn } from "@/lib/utils";
 
 type EquityPoint = {
@@ -109,50 +120,70 @@ const watchlistPairs = [
   },
 ];
 
-const openPositions = [
+const fallbackOpenPositions = [
   {
     id: "POS-9041",
     symbol: "EURUSD",
     side: "BUY",
-    lot: "0.50",
+    lot: "$500.00",
     entry: "1.08120",
     current: "1.08452",
-    pnl: "+$166.00",
+    pnlUsd: 62.5,
     up: true,
   },
   {
     id: "POS-9044",
     symbol: "XAUUSD",
     side: "BUY",
-    lot: "0.20",
+    lot: "$1,000.00",
     entry: "2672.50",
     current: "2684.40",
-    pnl: "+$238.00",
+    pnlUsd: 124.0,
     up: true,
   },
   {
-    id: "POS-9047",
-    symbol: "GBPUSD",
-    side: "SELL",
-    lot: "0.30",
-    entry: "1.29400",
-    current: "1.29613",
-    pnl: "-$63.60",
-    up: false,
+    id: "POS-9045",
+    symbol: "BTCUSD",
+    side: "BUY",
+    lot: "$450.00",
+    entry: "88110.0",
+    current: "88420.0",
+    pnlUsd: 54.0,
+    up: true,
   },
 ];
+
+type RawPosition = {
+  id: string;
+  symbol: string;
+  side: "BUY" | "SELL";
+  lot: number;
+  stakeUsd?: number;
+  leverage?: number;
+  entry: number;
+  pnl: number;
+  livePnl?: number;
+  status: "Terbuka" | "Tertunda" | "Ditutup";
+  openedAtMs?: number;
+  unlockAtMs?: number;
+};
 
 type WalletTransactionsPayload = {
   balance: number;
   deposits: DepositRequestRecord[];
   withdrawals: WithdrawRequestRecord[];
+  limits?: WalletLimitsRecord;
+  depositMethods?: DepositMethodRecord[];
+  idrPerUsd?: number;
 };
 
 export function BerandaView() {
   const { session } = useDemoSession();
+  const [positions, setPositions] = useState<RawPosition[] | null>(null);
+  const [markets, setMarkets] = useState<MarketInstrumentRecord[]>([]);
   const [range, setRange] = useState<"1M" | "1B" | "3B" | "1T">("1B");
   const [walletMode, setWalletMode] = useState<"deposit" | "withdraw">("deposit");
-  const [amountInput, setAmountInput] = useState("500");
+  const [amountInput, setAmountInput] = useState("1700000");
   const [methodInput, setMethodInput] = useState("Transfer Bank BCA");
   const [referenceInput, setReferenceInput] = useState("");
   const [proofImage, setProofImage] = useState("");
@@ -162,6 +193,8 @@ export function BerandaView() {
     balance: session.balance ?? 24510,
     deposits: [],
     withdrawals: [],
+    limits: { minDeposit: 10, maxDeposit: 50000, minWithdraw: 10, maxWithdraw: 25000 },
+    idrPerUsd: USD_TO_IDR_RATE,
   });
   const [walletMessage, setWalletMessage] = useState<{ type: "ok" | "err"; text: string } | null>(
     null,
@@ -170,11 +203,30 @@ export function BerandaView() {
 
   const loadWallet = useCallback(async () => {
     try {
-      const res = await fetch("/api/wallet/transactions");
-      if (res.ok) {
-        const json = (await res.json()) as WalletTransactionsPayload;
+      const [walletRes, posRes, mktRes] = await Promise.all([
+        fetch("/api/wallet/transactions"),
+        fetch("/api/positions"),
+        fetch("/api/markets"),
+      ]);
+      if (walletRes.ok) {
+        const json = (await walletRes.json()) as WalletTransactionsPayload;
         setWalletData(json);
+        if (Array.isArray(json.depositMethods) && json.depositMethods.length > 0) {
+          setMethodInput((prev) =>
+            json.depositMethods!.some((m) => m.label === prev)
+              ? prev
+              : json.depositMethods![0]!.label,
+          );
+        }
         saveDemoSession({ balance: json.balance });
+      }
+      if (posRes.ok) {
+        const posData = (await posRes.json()) as RawPosition[];
+        if (Array.isArray(posData)) setPositions(posData);
+      }
+      if (mktRes.ok) {
+        const mktData = (await mktRes.json()) as MarketInstrumentRecord[];
+        if (Array.isArray(mktData)) setMarkets(mktData);
       }
     } catch {
       // Ignore transient load failures
@@ -183,6 +235,10 @@ export function BerandaView() {
 
   useEffect(() => {
     void loadWallet();
+    const timer = window.setInterval(() => {
+      void loadWallet();
+    }, 3000);
+    return () => window.clearInterval(timer);
   }, [loadWallet]);
 
   async function handleQuickProofUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -205,21 +261,64 @@ export function BerandaView() {
   async function handleWalletSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setWalletMessage(null);
-    if (walletMode === "deposit" && !proofImage) {
-      setWalletMessage({
-        type: "err",
-        text: "Mohon unggah bukti transfer (gambar/screenshot) sebelum mengirim deposit.",
-      });
-      return;
+    const activeLimits = walletData.limits ?? {
+      minDeposit: 10,
+      maxDeposit: 50000,
+      minWithdraw: 10,
+      maxWithdraw: 25000,
+    };
+    const rate = walletData.idrPerUsd ?? USD_TO_IDR_RATE;
+    const numericAmount = Number(amountInput);
+
+    if (walletMode === "deposit") {
+      const minIdr = Math.round(activeLimits.minDeposit * rate);
+      const maxIdr = Math.round(activeLimits.maxDeposit * rate);
+      const convertedUsd = Number((numericAmount / rate).toFixed(2));
+      if (!Number.isFinite(numericAmount) || convertedUsd < activeLimits.minDeposit) {
+        setWalletMessage({
+          type: "err",
+          text: `Nominal deposit minimal ${formatIdr(minIdr)} (${formatUsd(activeLimits.minDeposit)}).`,
+        });
+        return;
+      }
+      if (convertedUsd > activeLimits.maxDeposit) {
+        setWalletMessage({
+          type: "err",
+          text: `Nominal deposit maksimal ${formatIdr(maxIdr)} (${formatUsd(activeLimits.maxDeposit)}).`,
+        });
+        return;
+      }
+      if (!proofImage) {
+        setWalletMessage({
+          type: "err",
+          text: "Mohon unggah bukti transfer (gambar/screenshot) sebelum mengirim deposit.",
+        });
+        return;
+      }
+    } else {
+      if (!Number.isFinite(numericAmount) || numericAmount < activeLimits.minWithdraw) {
+        setWalletMessage({
+          type: "err",
+          text: `Nominal penarikan minimal ${formatUsd(activeLimits.minWithdraw)} USD.`,
+        });
+        return;
+      }
+      if (numericAmount > activeLimits.maxWithdraw) {
+        setWalletMessage({
+          type: "err",
+          text: `Nominal penarikan maksimal ${formatUsd(activeLimits.maxWithdraw)} USD.`,
+        });
+        return;
+      }
     }
+
     setSubmittingWallet(true);
     try {
-      const numericAmount = Number(amountInput);
       const endpoint = walletMode === "deposit" ? "/api/wallet/deposit" : "/api/wallet/withdraw";
       const payload =
         walletMode === "deposit"
           ? {
-              amount: numericAmount,
+              amountIdr: Math.round(numericAmount),
               method: methodInput,
               reference: referenceInput,
               proofImage,
@@ -256,8 +355,58 @@ export function BerandaView() {
   }
 
   const chartData = equitySeriesByRange[range];
+  const rate = walletData.idrPerUsd ?? USD_TO_IDR_RATE;
+  const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
   const liveBalance = walletData.balance;
-  const liveEquity = liveBalance + 340.4;
+
+  const marketMap = useMemo(() => {
+    const map: Record<string, MarketInstrumentRecord> = {};
+    for (const m of markets) map[m.symbol] = m;
+    return map;
+  }, [markets]);
+
+  const liveOpenPositions = useMemo(() => {
+    if (!positions) return fallbackOpenPositions;
+    return positions
+      .filter((p) => p.status === "Terbuka")
+      .map((p) => {
+        const mkt = marketMap[p.symbol];
+        const currentPrice = mkt ? (p.side === "BUY" ? mkt.bid : mkt.ask) : p.entry;
+        const livePnl =
+          typeof p.livePnl === "number" && Number.isFinite(p.livePnl)
+            ? p.livePnl
+            : computeGuaranteedPositionPnl(p, mkt?.bid, mkt?.tickStep);
+        const posMargin = resolvePositionStakeUsd(p);
+        return {
+          id: p.id,
+          symbol: p.symbol,
+          side: p.side,
+          lot: formatUsd(posMargin),
+          entry: p.entry.toFixed(mkt?.decimals ?? 5),
+          current: currentPrice.toFixed(mkt?.decimals ?? 5),
+          pnlUsd: livePnl,
+          posMargin,
+          up: livePnl >= 0,
+        };
+      });
+  }, [positions, marketMap]);
+
+  const totalFloatingPnl = useMemo(() => {
+    if (!positions) return 340.4;
+    return liveOpenPositions.reduce((acc, cur) => acc + cur.pnlUsd, 0);
+  }, [positions, liveOpenPositions]);
+
+  const totalUsedMargin = useMemo(() => {
+    if (!positions) return 1910.25;
+    return liveOpenPositions.reduce(
+      (acc, cur) => acc + ("posMargin" in cur ? cur.posMargin : 0),
+      0,
+    );
+  }, [positions, liveOpenPositions]);
+
+  const liveEquity = liveBalance + totalFloatingPnl;
+  const freeMargin = Math.max(0, liveEquity - totalUsedMargin);
+  const marginLevelPct = totalUsedMargin > 0 ? (liveEquity / totalUsedMargin) * 100 : 0;
 
   const walletHistoryRows = useMemo(
     () => [
@@ -266,6 +415,7 @@ export function BerandaView() {
         kind: "Deposit",
         detail: `${d.method} · ${d.reference}`,
         amount: d.amount,
+        amountIdr: d.amountIdr ?? Math.round(d.amount * rate),
         status: d.status,
         time: d.submittedAt,
       })),
@@ -274,34 +424,43 @@ export function BerandaView() {
         kind: "Withdraw",
         detail: w.destination,
         amount: w.amount,
+        amountIdr: Math.round(w.amount * rate),
         status: w.status,
         time: w.submittedAt,
       })),
     ],
-    [walletData.deposits, walletData.withdrawals],
+    [walletData.deposits, walletData.withdrawals, rate],
   );
 
-  const openPositionsPagination = usePagination(openPositions, 5);
+  const openPositionsPagination = usePagination(liveOpenPositions, 5);
   const walletHistoryPagination = usePagination(walletHistoryRows, 5);
 
   const kpis = [
     {
       label: "Saldo Akun",
-      value: `$${liveBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      note: "+2.4% bulan ini",
+      pair: formatMoneyPair(liveBalance, displayCurrency, { rate }),
+      note: "Dana terealisasi · Kurs 1 USD = Rp 17.000",
       up: true,
     },
     {
       label: "Ekuitas Saat Ini",
-      value: `$${liveEquity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      pair: formatMoneyPair(liveEquity, displayCurrency, { rate }),
       note: "Tersinkronisasi langsung",
       up: true,
     },
-    { label: "P&L Mengambang", value: "+$340.40", note: "3 posisi terbuka", up: true },
+    {
+      label: "P&L Mengambang",
+      pair: formatMoneyPair(totalFloatingPnl, displayCurrency, { signed: true, rate }),
+      note: `${liveOpenPositions.length} posisi terbuka`,
+      up: totalFloatingPnl >= 0,
+    },
     {
       label: "Margin Tersedia",
-      value: `$${Math.max(0, liveEquity - 1910.25).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      note: "Level margin 1,301%",
+      pair: formatMoneyPair(freeMargin, displayCurrency, { rate }),
+      note:
+        totalUsedMargin > 0
+          ? `Level margin ${Math.round(marginLevelPct).toLocaleString("en-US")}%`
+          : "Bebas digunakan",
       up: true,
     },
   ];
@@ -352,11 +511,32 @@ export function BerandaView() {
         {kpis.map((item) => (
           <div key={item.label} className="rounded-xl border border-border bg-card p-5">
             <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-            <p className="mt-2 font-mono text-2xl font-bold tabular-nums text-foreground">
-              {item.value}
+            <p
+              className={cn(
+                "mt-2 font-mono text-2xl font-bold tabular-nums",
+                item.label === "P&L Mengambang"
+                  ? item.up
+                    ? "text-primary"
+                    : "text-destructive"
+                  : "text-foreground",
+              )}
+            >
+              {item.pair.primary}
             </p>
-            <p className="mt-2 flex items-center gap-1 text-xs text-primary">
-              <ArrowUpRight className="size-3.5 shrink-0" />
+            <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+              ≈ {item.pair.secondary}
+            </p>
+            <p
+              className={cn(
+                "mt-2 flex items-center gap-1 text-xs",
+                item.up ? "text-primary" : "text-destructive",
+              )}
+            >
+              {item.up ? (
+                <ArrowUpRight className="size-3.5 shrink-0" />
+              ) : (
+                <ArrowDownRight className="size-3.5 shrink-0" />
+              )}
               <span>{item.note}</span>
             </p>
           </div>
@@ -419,7 +599,11 @@ export function BerandaView() {
                   tickLine={false}
                   axisLine={false}
                   domain={["dataMin - 500", "dataMax + 300"]}
-                  tickFormatter={(val: number) => `$${(val / 1000).toFixed(1)}k`}
+                  tickFormatter={(val: number) =>
+                    displayCurrency === "IDR"
+                      ? `Rp ${Math.round((val * rate) / 1_000_000)}jt`
+                      : `$${(val / 1000).toFixed(1)}k`
+                  }
                 />
                 <Tooltip
                   contentStyle={{
@@ -428,7 +612,10 @@ export function BerandaView() {
                     borderRadius: "8px",
                     fontSize: "12px",
                   }}
-                  formatter={(value: number) => [`$${value.toLocaleString("en-US")}`, "Ekuitas"]}
+                  formatter={(value: number) => {
+                    const pair = formatMoneyPair(value, displayCurrency, { rate });
+                    return [`${pair.primary} (${pair.secondary})`, "Ekuitas"];
+                  }}
                 />
                 <Area
                   type="monotone"
@@ -509,7 +696,7 @@ export function BerandaView() {
                 <tr>
                   <th className="py-2.5 pr-4 font-medium">Instrumen</th>
                   <th className="py-2.5 pr-4 font-medium">Arah</th>
-                  <th className="py-2.5 pr-4 text-right font-medium">Lot</th>
+                  <th className="py-2.5 pr-4 text-right font-medium">Nominal</th>
                   <th className="py-2.5 pr-4 text-right font-medium">Harga Masuk</th>
                   <th className="py-2.5 pr-4 text-right font-medium">Harga Kini</th>
                   <th className="py-2.5 text-right font-medium">P&L</th>
@@ -536,7 +723,20 @@ export function BerandaView() {
                         pos.up ? "text-primary" : "text-destructive",
                       )}
                     >
-                      {pos.pnl}
+                      {(() => {
+                        const pnlPair = formatMoneyPair(pos.pnlUsd, displayCurrency, {
+                          signed: true,
+                          rate,
+                        });
+                        return (
+                          <>
+                            <p>{pnlPair.primary}</p>
+                            <p className="text-[11px] font-normal text-muted-foreground">
+                              {pnlPair.secondary}
+                            </p>
+                          </>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -620,7 +820,11 @@ export function BerandaView() {
           <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg border border-border bg-background p-1">
             <button
               type="button"
-              onClick={() => setWalletMode("deposit")}
+              onClick={() => {
+                setWalletMode("deposit");
+                setAmountInput("1700000");
+                setWalletMessage(null);
+              }}
               className={cn(
                 "rounded-md py-2 text-xs font-semibold transition-colors",
                 walletMode === "deposit"
@@ -632,7 +836,11 @@ export function BerandaView() {
             </button>
             <button
               type="button"
-              onClick={() => setWalletMode("withdraw")}
+              onClick={() => {
+                setWalletMode("withdraw");
+                setAmountInput("250");
+                setWalletMessage(null);
+              }}
               className={cn(
                 "rounded-md py-2 text-xs font-semibold transition-colors",
                 walletMode === "withdraw"
@@ -646,19 +854,53 @@ export function BerandaView() {
 
           <form className="mt-5 space-y-4" onSubmit={(e) => void handleWalletSubmit(e)}>
             <div>
-              <label htmlFor="wallet-amount" className="block text-xs font-medium text-foreground">
-                Nominal (USD)
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="wallet-amount"
+                  className="block text-xs font-medium text-foreground"
+                >
+                  {walletMode === "deposit" ? "Nominal Deposit (IDR)" : "Nominal Penarikan (USD)"}
+                </label>
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  {walletMode === "deposit"
+                    ? `Min ${formatIdr((walletData.limits?.minDeposit ?? 10) * (walletData.idrPerUsd ?? USD_TO_IDR_RATE))} · Maks ${formatIdr((walletData.limits?.maxDeposit ?? 50000) * (walletData.idrPerUsd ?? USD_TO_IDR_RATE))}`
+                    : `Min $${(walletData.limits?.minWithdraw ?? 10).toLocaleString("en-US")} · Maks $${(walletData.limits?.maxWithdraw ?? 25000).toLocaleString("en-US")}`}
+                </span>
+              </div>
               <Input
                 id="wallet-amount"
                 type="number"
-                min={10}
-                step="0.01"
+                min={
+                  walletMode === "deposit"
+                    ? Math.round(
+                        (walletData.limits?.minDeposit ?? 10) *
+                          (walletData.idrPerUsd ?? USD_TO_IDR_RATE),
+                      )
+                    : (walletData.limits?.minWithdraw ?? 10)
+                }
+                max={
+                  walletMode === "deposit"
+                    ? Math.round(
+                        (walletData.limits?.maxDeposit ?? 50000) *
+                          (walletData.idrPerUsd ?? USD_TO_IDR_RATE),
+                      )
+                    : (walletData.limits?.maxWithdraw ?? 25000)
+                }
+                step={walletMode === "deposit" ? "1000" : "0.01"}
                 required
                 value={amountInput}
                 onChange={(e) => setAmountInput(e.target.value)}
                 className="mt-1.5 h-10 bg-background font-mono tabular-nums"
               />
+              {walletMode === "deposit" && (
+                <p className="mt-1 font-mono text-[11px] tabular-nums text-primary">
+                  Kurs 1 USD = {formatIdr(walletData.idrPerUsd ?? USD_TO_IDR_RATE)} → Estimasi
+                  kredit:{" "}
+                  {formatUsd(
+                    (Number(amountInput) || 0) / (walletData.idrPerUsd ?? USD_TO_IDR_RATE),
+                  )}
+                </p>
+              )}
             </div>
 
             {walletMode === "deposit" ? (
@@ -670,14 +912,29 @@ export function BerandaView() {
                   >
                     Metode Transfer
                   </label>
-                  <Input
-                    id="wallet-method"
-                    required
-                    value={methodInput}
-                    onChange={(e) => setMethodInput(e.target.value)}
-                    placeholder="Transfer Bank BCA / Mandiri / USDT"
-                    className="mt-1.5 h-10 bg-background"
-                  />
+                  {walletData.depositMethods && walletData.depositMethods.length > 0 ? (
+                    <select
+                      id="wallet-method"
+                      value={methodInput}
+                      onChange={(e) => setMethodInput(e.target.value)}
+                      className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none"
+                    >
+                      {walletData.depositMethods.map((m) => (
+                        <option key={m.id} value={m.label}>
+                          {m.label} · {m.accountInfo}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id="wallet-method"
+                      required
+                      value={methodInput}
+                      onChange={(e) => setMethodInput(e.target.value)}
+                      placeholder="Transfer Bank BCA / Mandiri / BNI / USDT"
+                      className="mt-1.5 h-10 bg-background"
+                    />
+                  )}
                 </div>
                 <div>
                   <label htmlFor="wallet-ref" className="block text-xs font-medium text-foreground">
@@ -820,8 +1077,17 @@ export function BerandaView() {
                       <p className="font-semibold text-foreground">{row.kind}</p>
                       <p className="text-xs text-muted-foreground">{row.detail}</p>
                     </td>
-                    <td className="py-3 pr-4 text-right font-mono font-semibold tabular-nums text-foreground">
-                      ${row.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    <td className="py-3 pr-4 text-right font-mono tabular-nums text-foreground">
+                      <p className="font-semibold">
+                        {displayCurrency === "IDR"
+                          ? formatIdr(row.amountIdr)
+                          : formatUsd(row.amount)}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {displayCurrency === "IDR"
+                          ? formatUsd(row.amount)
+                          : formatIdr(row.amountIdr)}
+                      </p>
                     </td>
                     <td className="py-3">
                       <span

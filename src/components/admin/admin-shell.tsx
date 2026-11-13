@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import type { AdminSessionState } from "@/components/admin/admin-types";
+import { useAdminCurrency } from "@/lib/currency";
 import { useSidebarCollapse } from "@/lib/fe-session";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,7 @@ export function AdminShell({
 }: AdminShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebarCollapse("admin");
+  const { currency, setCurrency } = useAdminCurrency();
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "unauthenticated">(
     "checking",
   );
@@ -346,6 +348,28 @@ export function AdminShell({
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
+            <div
+              role="group"
+              aria-label="Pilih mata uang tampilan admin"
+              className="inline-flex items-center rounded-md border border-border bg-card p-0.5 font-mono text-[11px] font-semibold"
+            >
+              {(["USD", "IDR"] as const).map((curr) => (
+                <button
+                  key={curr}
+                  type="button"
+                  onClick={() => setCurrency(curr)}
+                  aria-pressed={currency === curr}
+                  className={cn(
+                    "rounded px-2 py-1 transition-colors",
+                    currency === curr
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {curr}
+                </button>
+              ))}
+            </div>
             {action ?? (
               <Link
                 to="/admin/markets"

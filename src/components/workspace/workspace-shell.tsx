@@ -19,6 +19,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { formatMoneyPair, type DisplayCurrency } from "@/lib/currency";
 import { clearDemoSession, useDemoSession, useSidebarCollapse } from "@/lib/fe-session";
 import { cn } from "@/lib/utils";
 
@@ -57,8 +58,10 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
   const [mobileOpen, setMobileOpen] = useState(false);
   const { collapsed, toggleCollapsed } = useSidebarCollapse("user");
   const navigate = useNavigate();
-  const { session } = useDemoSession();
+  const { session, updateSession } = useDemoSession();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
+  const headerBalance = formatMoneyPair(session.balance ?? 24510, displayCurrency);
 
   function handleLogout() {
     clearDemoSession();
@@ -314,15 +317,36 @@ export function WorkspaceShell({ title, subtitle, action, children }: WorkspaceS
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 items-center gap-3">
+            <div
+              role="group"
+              aria-label="Pilih mata uang tampilan"
+              className="inline-flex items-center rounded-md border border-border bg-card p-0.5 font-mono text-[11px] font-semibold"
+            >
+              {(["USD", "IDR"] as const).map((curr) => (
+                <button
+                  key={curr}
+                  type="button"
+                  onClick={() => void updateSession({ currency: curr })}
+                  aria-pressed={displayCurrency === curr}
+                  className={cn(
+                    "rounded px-2 py-1 transition-colors",
+                    displayCurrency === curr
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {curr}
+                </button>
+              ))}
+            </div>
             <div className="hidden text-right sm:block">
               <p className="text-[11px] text-muted-foreground">Saldo Akun</p>
               <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                $
-                {(session.balance ?? 24510).toLocaleString("en-US", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
+                {headerBalance.primary}
+              </p>
+              <p className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                {headerBalance.secondary}
               </p>
             </div>
             {action ?? (

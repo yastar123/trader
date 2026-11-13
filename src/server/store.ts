@@ -1,3 +1,12 @@
+import {
+  computeGuaranteedPositionPnl,
+  DEFAULT_TRADING_RULES,
+  getWibDateKey,
+  type TradingRulesRecord,
+} from "../lib/trading.ts";
+
+export { getWibDateKey, type TradingRulesRecord };
+
 export type UserProfile = {
   name: string;
   email: string;
@@ -52,13 +61,18 @@ export type TradePosition = {
   type: "Market" | "Limit";
   side: "BUY" | "SELL";
   lot: number;
+  stakeUsd?: number;
   leverage: number;
   entry: number;
   sl: string;
   tp: string;
   pnl: number;
+  adminProfitUsd?: number;
   status: "Terbuka" | "Tertunda" | "Ditutup";
   openedAt: string;
+  openedAtMs?: number;
+  unlockAtMs?: number;
+  openedDate?: string;
 };
 
 export type JournalRecord = {
@@ -116,6 +130,19 @@ export type AdminUserRecord = {
 
 export type VerificationStatus = "Menunggu" | "Disetujui" | "Ditolak";
 
+export const USD_TO_IDR_RATE = 17000;
+
+export type DepositMethodRecord = {
+  id: string;
+  label: string;
+  accountInfo: string;
+  accountHolder: string;
+  fee: string;
+  eta: string;
+  enabled: boolean;
+  sortOrder?: number;
+};
+
 export type DepositRequestRecord = {
   id: string;
   userId: string;
@@ -125,6 +152,8 @@ export type DepositRequestRecord = {
   method: string;
   reference: string;
   amount: number;
+  amountIdr?: number;
+  exchangeRate?: number;
   currency: "USD";
   proofImage?: string;
   proofFileName?: string;
@@ -158,6 +187,15 @@ export type AuditLogRecord = {
   action: string;
   target: string;
   detail: string;
+};
+
+export type WalletLimitsRecord = {
+  minDeposit: number;
+  maxDeposit: number;
+  minWithdraw: number;
+  maxWithdraw: number;
+  updatedBy?: string;
+  updatedAt?: string;
 };
 
 function seededNoise(seed: number): number {
@@ -241,16 +279,16 @@ function nextCandleTimeLabel(lastLabel: string): string {
 export function computePositionFloatingPnl(
   pos: TradePosition,
   market: MarketInstrumentRecord | undefined,
+  nowMs = Date.now(),
+  defaultProfitPercent = memoryStore.tradingRules.defaultProfitPercent ?? 10,
 ): number {
-  if (!market) return pos.pnl;
-  if (pos.status === "Ditutup") return pos.pnl;
-  if (pos.status === "Tertunda") return 0;
-
-  const exitPrice = pos.side === "BUY" ? market.bid : market.ask;
-  const diff = pos.side === "BUY" ? exitPrice - pos.entry : pos.entry - exitPrice;
-  const raw = diff * market.contractSize * pos.lot;
-  const usd = market.quoteInJpy ? raw / Math.max(1, exitPrice) : raw;
-  return Number(usd.toFixed(2));
+  return computeGuaranteedPositionPnl(
+    pos,
+    market?.bid,
+    market?.tickStep,
+    nowMs,
+    defaultProfitPercent,
+  );
 }
 
 function makeSampleProofSvg(params: {
@@ -281,6 +319,62 @@ function makeSampleProofSvg(params: {
 export const memoryStore = {
   adminSessions: new Map<string, string>(),
   marketTickCount: 0,
+
+  walletLimits: {
+    minDeposit: 10,
+    maxDeposit: 50000,
+    minWithdraw: 10,
+    maxWithdraw: 25000,
+    updatedBy: "admin@ictrading.id",
+    updatedAt: "Bawaan sistem",
+  } satisfies WalletLimitsRecord,
+
+  tradingRules: {
+    ...DEFAULT_TRADING_RULES,
+  } satisfies TradingRulesRecord,
+
+  depositMethods: [
+    {
+      id: "bca",
+      label: "Transfer Bank BCA",
+      accountInfo: "5210-8842-9012",
+      accountHolder: "PT IC Trading Nusantara",
+      fee: "Gratis (0%)",
+      eta: "5–15 menit setelah verifikasi admin",
+      enabled: true,
+      sortOrder: 1,
+    },
+    {
+      id: "mandiri",
+      label: "Transfer Bank Mandiri",
+      accountInfo: "137-000-9921-440",
+      accountHolder: "PT IC Trading Nusantara",
+      fee: "Gratis (0%)",
+      eta: "5–15 menit setelah verifikasi admin",
+      enabled: true,
+      sortOrder: 2,
+    },
+    {
+      id: "bni",
+      label: "Transfer Bank BNI",
+      accountInfo: "044-8192-3301",
+      accountHolder: "PT IC Trading Nusantara",
+      fee: "Gratis (0%)",
+      eta: "10–20 menit setelah verifikasi admin",
+      enabled: true,
+      sortOrder: 3,
+    },
+    {
+      id: "usdt",
+      label: "USDT (TRC20)",
+      accountInfo: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      accountHolder: "Dompet Kustodian TRC20",
+      fee: "Biaya jaringan sesuai pengirim",
+      eta: "Konfirmasi jaringan + verifikasi admin",
+      enabled: true,
+      sortOrder: 4,
+    },
+  ] as DepositMethodRecord[],
 
   profile: {
     name: "Raka Pratama",
@@ -438,6 +532,8 @@ export const memoryStore = {
       method: "Transfer Bank BCA",
       reference: "BCA-REF-8839201",
       amount: 2500.0,
+      amountIdr: 42500000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "struk-bca-8839201.png",
       proofImage: makeSampleProofSvg({
@@ -460,6 +556,8 @@ export const memoryStore = {
       method: "USDT (TRC20)",
       reference: "0x9f21...7b3e",
       amount: 1200.0,
+      amountIdr: 20400000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "tx-usdt-trc20.png",
       proofImage: makeSampleProofSvg({
@@ -482,6 +580,8 @@ export const memoryStore = {
       method: "Transfer Bank Mandiri",
       reference: "MDR-9920184",
       amount: 3000.0,
+      amountIdr: 51000000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "mandiri-9920184.png",
       proofImage: makeSampleProofSvg({
@@ -507,6 +607,8 @@ export const memoryStore = {
       method: "Transfer Bank BCA",
       reference: "BCA-REF-8810244",
       amount: 5000.0,
+      amountIdr: 85000000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "bca-8810244.png",
       proofImage: makeSampleProofSvg({
@@ -532,6 +634,8 @@ export const memoryStore = {
       method: "USDT (TRC20)",
       reference: "0x41a8...e912",
       amount: 1800.0,
+      amountIdr: 30600000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "trc20-41a8.png",
       proofImage: makeSampleProofSvg({
@@ -557,6 +661,8 @@ export const memoryStore = {
       method: "Virtual Account BNI",
       reference: "BNI-VA-772190",
       amount: 1000.0,
+      amountIdr: 17000000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "bni-va-772190.png",
       proofImage: makeSampleProofSvg({
@@ -582,6 +688,8 @@ export const memoryStore = {
       method: "Transfer Bank Mandiri",
       reference: "MDR-7710023",
       amount: 4200.0,
+      amountIdr: 71400000,
+      exchangeRate: USD_TO_IDR_RATE,
       currency: "USD",
       proofFileName: "mandiri-7710023.png",
       proofImage: makeSampleProofSvg({
@@ -748,13 +856,18 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.5,
+      stakeUsd: 500,
       leverage: 500,
       entry: 1.0812,
       sl: "1.07850",
       tp: "1.08800",
-      pnl: 166.0,
+      pnl: 62.5,
+      adminProfitUsd: 62.5,
       status: "Terbuka",
       openedAt: "10:15 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
     {
       id: "ORD-9044",
@@ -765,13 +878,18 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.2,
+      stakeUsd: 1000,
       leverage: 500,
       entry: 2672.5,
       sl: "2662.00",
       tp: "2705.00",
-      pnl: 238.0,
+      pnl: 124.0,
+      adminProfitUsd: 124.0,
       status: "Terbuka",
       openedAt: "11:42 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
     {
       id: "ORD-9045",
@@ -782,13 +900,18 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.1,
+      stakeUsd: 450,
       leverage: 200,
       entry: 88110.0,
       sl: "87200.0",
       tp: "89900.0",
-      pnl: 31.0,
+      pnl: 54.0,
+      adminProfitUsd: 54.0,
       status: "Terbuka",
       openedAt: "12:18 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
     {
       id: "ORD-9048",
@@ -799,6 +922,7 @@ export const memoryStore = {
       type: "Limit",
       side: "SELL",
       lot: 0.25,
+      stakeUsd: 250,
       leverage: 200,
       entry: 1.2995,
       sl: "1.30300",
@@ -806,6 +930,9 @@ export const memoryStore = {
       pnl: 0,
       status: "Tertunda",
       openedAt: "13:10 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
     {
       id: "ORD-9047",
@@ -816,6 +943,7 @@ export const memoryStore = {
       type: "Limit",
       side: "BUY",
       lot: 0.3,
+      stakeUsd: 300,
       leverage: 500,
       entry: 71.15,
       sl: "70.40",
@@ -823,6 +951,9 @@ export const memoryStore = {
       pnl: 0,
       status: "Tertunda",
       openedAt: "12:55 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
     {
       id: "ORD-9040",
@@ -833,6 +964,7 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.5,
+      stakeUsd: 500,
       leverage: 500,
       entry: 1.0812,
       sl: "1.07850",
@@ -840,6 +972,9 @@ export const memoryStore = {
       pnl: 180.0,
       status: "Ditutup",
       openedAt: "11 Nov · 16:40",
+      openedAtMs: 1762854000000,
+      unlockAtMs: 1762854300000,
+      openedDate: "2026-11-11",
     },
     {
       id: "ORD-9039",
@@ -850,6 +985,7 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.2,
+      stakeUsd: 600,
       leverage: 500,
       entry: 2668.4,
       sl: "2660.00",
@@ -857,6 +993,9 @@ export const memoryStore = {
       pnl: 270.0,
       status: "Ditutup",
       openedAt: "11 Nov · 14:15",
+      openedAtMs: 1762845300000,
+      unlockAtMs: 1762845600000,
+      openedDate: "2026-11-11",
     },
     {
       id: "ORD-9038",
@@ -867,13 +1006,17 @@ export const memoryStore = {
       type: "Market",
       side: "SELL",
       lot: 0.3,
+      stakeUsd: 300,
       leverage: 200,
       entry: 1.2981,
       sl: "1.30040",
       tp: "1.29300",
-      pnl: -69.0,
+      pnl: 84.5,
       status: "Ditutup",
       openedAt: "10 Nov · 19:05",
+      openedAtMs: 1762776300000,
+      unlockAtMs: 1762776600000,
+      openedDate: "2026-11-10",
     },
     {
       id: "ORD-9037",
@@ -884,6 +1027,7 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.4,
+      stakeUsd: 400,
       leverage: 500,
       entry: 151.6,
       sl: "151.200",
@@ -891,6 +1035,9 @@ export const memoryStore = {
       pnl: 178.5,
       status: "Ditutup",
       openedAt: "08 Nov · 10:20",
+      openedAtMs: 1762572000000,
+      unlockAtMs: 1762572300000,
+      openedDate: "2026-11-08",
     },
     {
       id: "ORD-9036",
@@ -901,6 +1048,7 @@ export const memoryStore = {
       type: "Market",
       side: "SELL",
       lot: 0.2,
+      stakeUsd: 250,
       leverage: 200,
       entry: 72.45,
       sl: "73.10",
@@ -908,6 +1056,9 @@ export const memoryStore = {
       pnl: 190.0,
       status: "Ditutup",
       openedAt: "07 Nov · 20:10",
+      openedAtMs: 1762521000000,
+      unlockAtMs: 1762521300000,
+      openedDate: "2026-11-07",
     },
     {
       id: "ORD-9035",
@@ -918,6 +1069,7 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.1,
+      stakeUsd: 200,
       leverage: 100,
       entry: 87420.0,
       sl: "86500.0",
@@ -925,6 +1077,9 @@ export const memoryStore = {
       pnl: 153.0,
       status: "Ditutup",
       openedAt: "06 Nov · 15:02",
+      openedAtMs: 1762416120000,
+      unlockAtMs: 1762416420000,
+      openedDate: "2026-11-06",
     },
     {
       id: "ORD-9049",
@@ -935,13 +1090,18 @@ export const memoryStore = {
       type: "Market",
       side: "BUY",
       lot: 0.15,
+      stakeUsd: 350,
       leverage: 100,
       entry: 87950.0,
       sl: "86800.0",
       tp: "90500.0",
       pnl: 70.5,
+      adminProfitUsd: 70.5,
       status: "Terbuka",
       openedAt: "12:05 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
     {
       id: "ORD-9050",
@@ -952,13 +1112,18 @@ export const memoryStore = {
       type: "Market",
       side: "SELL",
       lot: 0.4,
+      stakeUsd: 400,
       leverage: 200,
       entry: 72.3,
       sl: "73.10",
       tp: "70.40",
       pnl: 180.0,
+      adminProfitUsd: 180.0,
       status: "Terbuka",
       openedAt: "12:48 WIB",
+      openedAtMs: 0,
+      unlockAtMs: 0,
+      openedDate: "2026-11-12",
     },
   ] as TradePosition[],
 

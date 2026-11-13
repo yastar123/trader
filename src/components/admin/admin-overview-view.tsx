@@ -9,8 +9,10 @@ import {
 } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
+import { formatMoneyPair, useAdminCurrency } from "@/lib/currency";
 
 export function AdminOverviewView() {
+  const { currency } = useAdminCurrency();
   const [data, setData] = useState<AdminOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -142,15 +144,28 @@ export function AdminOverviewView() {
           </div>
           <div className="rounded-xl border border-border bg-card p-5">
             <p className="text-xs font-medium text-muted-foreground">Total Deposit Disetujui</p>
-            <p className="mt-2 font-mono text-2xl font-bold tabular-nums text-primary">
-              {loading ? "—" : formatUsd(stats?.approvedDepositTotal ?? 0)}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Withdraw disetujui:{" "}
-              <span className="font-mono tabular-nums">
-                {loading ? "—" : formatUsd(stats?.approvedWithdrawTotal ?? 0)}
-              </span>
-            </p>
+            {(() => {
+              const depPair = formatMoneyPair(stats?.approvedDepositTotal ?? 0, currency);
+              const wdPair = formatMoneyPair(stats?.approvedWithdrawTotal ?? 0, currency);
+              return (
+                <>
+                  <p className="mt-2 font-mono text-2xl font-bold tabular-nums text-primary">
+                    {loading ? "—" : depPair.primary}
+                  </p>
+                  {!loading && (
+                    <p className="mt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+                      ≈ {depPair.secondary}
+                    </p>
+                  )}
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Withdraw disetujui:{" "}
+                    <span className="font-mono tabular-nums">
+                      {loading ? "—" : `${wdPair.primary} (${wdPair.secondary})`}
+                    </span>
+                  </p>
+                </>
+              );
+            })()}
           </div>
           <div className="rounded-xl border border-border bg-card p-5">
             <p className="text-xs font-medium text-muted-foreground">Pengguna Aktif</p>
@@ -197,9 +212,17 @@ export function AdminOverviewView() {
                       </p>
                       <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
                         {item.userName} ·{" "}
-                        <span className="font-mono tabular-nums text-primary">
-                          {formatUsd(item.amount)}
-                        </span>
+                        {(() => {
+                          const depRowPair = formatMoneyPair(item.amount, currency);
+                          return (
+                            <span className="font-mono tabular-nums text-primary">
+                              {depRowPair.primary}{" "}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                ({depRowPair.secondary})
+                              </span>
+                            </span>
+                          );
+                        })()}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {item.method} · Ref {item.reference}
@@ -289,9 +312,17 @@ export function AdminOverviewView() {
                       </p>
                       <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
                         {item.userName} ·{" "}
-                        <span className="font-mono tabular-nums text-foreground">
-                          {formatUsd(item.amount)}
-                        </span>
+                        {(() => {
+                          const wdRowPair = formatMoneyPair(item.amount, currency);
+                          return (
+                            <span className="font-mono tabular-nums text-foreground">
+                              {wdRowPair.primary}{" "}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                ({wdRowPair.secondary})
+                              </span>
+                            </span>
+                          );
+                        })()}
                       </p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {item.destination}
@@ -411,7 +442,11 @@ export function AdminOverviewView() {
                   {previewProof.id} · {previewProof.accountId}
                 </p>
                 <h2 className="mt-0.5 font-display text-base font-bold text-foreground">
-                  {previewProof.userName} · {formatUsd(previewProof.amount)}
+                  {previewProof.userName} ·{" "}
+                  {(() => {
+                    const modalPair = formatMoneyPair(previewProof.amount, currency);
+                    return `${modalPair.primary} (${modalPair.secondary})`;
+                  })()}
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   {previewProof.method} · Ref {previewProof.reference}

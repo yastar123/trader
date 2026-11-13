@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Search } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { formatUsd, type AdminUserRecord } from "@/components/admin/admin-types";
+import type { AdminUserRecord } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
+import { formatMoneyPair, useAdminCurrency } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
 type UserFilter = "Semua" | "Aktif" | "Ditangguhkan";
 
 export function AdminUsersView() {
+  const { currency } = useAdminCurrency();
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<UserFilter>("Semua");
@@ -172,8 +174,18 @@ export function AdminUsersView() {
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">{user.accountType}</p>
                       </td>
-                      <td className="px-4 py-4 text-right font-mono font-bold tabular-nums text-foreground">
-                        {formatUsd(user.balance)}
+                      <td className="px-4 py-4 text-right font-mono tabular-nums text-foreground">
+                        {(() => {
+                          const balPair = formatMoneyPair(user.balance, currency);
+                          return (
+                            <>
+                              <p className="font-bold">{balPair.primary}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {balPair.secondary}
+                              </p>
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-4">
                         <span

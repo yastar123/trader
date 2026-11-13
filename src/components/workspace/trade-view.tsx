@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, CheckCircle2, Pause, Play, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CheckCircle2, Lock, Pause, Play, X } from "lucide-react";
 import type { MarketInstrumentRecord } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
+import {
+  formatIdr,
+  formatMoneyPair,
+  formatUsd,
+  USD_TO_IDR_RATE,
+  type DisplayCurrency,
+} from "@/lib/currency";
 import { saveDemoSession, useDemoSession } from "@/lib/fe-session";
+import {
+  computeGuaranteedPositionPnl,
+  DEFAULT_TRADING_RULES,
+  formatHoldCountdown,
+  formatMinCloseDuration,
+  resolvePositionStakeUsd,
+  type TradingRulesRecord,
+} from "@/lib/trading";
 import { cn } from "@/lib/utils";
 
 type Timeframe = "M5" | "M15" | "H1" | "H4" | "D1";
@@ -18,13 +33,18 @@ type ActivePosition = {
   type: "Market" | "Limit";
   side: "BUY" | "SELL";
   lot: number;
+  stakeUsd?: number;
   leverage?: number;
   entry: number;
   sl: string;
   tp: string;
   pnl: number;
+  livePnl?: number;
   status: "Terbuka" | "Tertunda" | "Ditutup";
   openedAt: string;
+  openedAtMs?: number;
+  unlockAtMs?: number;
+  openedDate?: string;
 };
 
 const FALLBACK_MARKETS: MarketInstrumentRecord[] = [
@@ -53,32 +73,19 @@ const FALLBACK_MARKETS: MarketInstrumentRecord[] = [
   },
 ];
 
-const LOT_PRESETS = [0.01, 0.05, 0.1, 0.5, 1.0];
+const USD_NOMINAL_PRESETS = [50, 100, 250, 500, 1000] as const;
+const IDR_NOMINAL_PRESETS = [850000, 1700000, 4250000, 8500000, 17000000] as const;
 const LEVERAGE_TIERS = [50, 100, 200, 500, 1000] as const;
 
 function computeFloatingPnl(
   pos: ActivePosition,
   market: MarketInstrumentRecord | undefined,
+  nowMs = Date.now(),
 ): number {
-  if (!market) return pos.pnl;
-  if (pos.status === "Ditutup") return pos.pnl;
-  if (pos.status === "Tertunda") return 0;
-
-  const exitPrice = pos.side === "BUY" ? market.bid : market.ask;
-  const diff = pos.side === "BUY" ? exitPrice - pos.entry : pos.entry - exitPrice;
-  const raw = diff * market.contractSize * pos.lot;
-  const usd = market.quoteInJpy ? raw / Math.max(1, exitPrice) : raw;
-  return Number(usd.toFixed(2));
-}
-
-function computeRequiredMargin(
-  spec: MarketInstrumentRecord,
-  lot: number,
-  price: number,
-  leverage: number,
-): number {
-  const notionalUsd = spec.quoteInJpy ? lot * spec.contractSize : lot * spec.contractSize * price;
-  return Number((notionalUsd / Math.max(1, leverage)).toFixed(2));
+  if (pos.status === "Terbuka" && typeof pos.livePnl === "number" && Number.isFinite(pos.livePnl)) {
+    return pos.livePnl;
+  }
+  return computeGuaranteedPositionPnl(pos, market?.bid, market?.tickStep, nowMs);
 }
 
 export function TradeView() {
@@ -93,13 +100,19 @@ export function TradeView() {
 
   const [orderType, setOrderType] = useState<"Market" | "Limit">("Market");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
-  const [lot, setLot] = useState("0.20");
+  const [stakeCurrency, setStakeCurrency] = useState<DisplayCurrency>(
+    session.currency === "IDR" ? "IDR" : "USD",
+  );
+  const [stakeInput, setStakeInput] = useState(session.currency === "IDR" ? "1700000" : "100");
   const [leverage, setLeverage] = useState<number>(session.leverage ?? 500);
   const [limitPrice, setLimitPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
 
   const [positions, setPositions] = useState<ActivePosition[]>([]);
+  const [tradingRules, setTradingRules] = useState<TradingRulesRecord>(DEFAULT_TRADING_RULES);
+  const [todayOpenCount, setTodayOpenCount] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [bottomTab, setBottomTab] = useState<"Terbuka" | "Tertunda" | "Ditutup">("Terbuka");
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
@@ -113,6 +126,13 @@ export function TradeView() {
       setLeverage(session.leverage);
     }
   }, [session.leverage]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const fetchMarkets = useCallback(async () => {
     try {
@@ -128,9 +148,29 @@ export function TradeView() {
     }
   }, []);
 
+  const loadTradingRules = useCallback(async () => {
+    try {
+      const res = await fetch("/api/trading-rules");
+      if (res.ok) {
+        const data = (await res.json()) as {
+          rules?: TradingRulesRecord;
+          todayOpenCount?: number;
+        };
+        if (data.rules) setTradingRules(data.rules);
+        if (typeof data.todayOpenCount === "number") setTodayOpenCount(data.todayOpenCount);
+      }
+    } catch {
+      // Ignore transient errors
+    }
+  }, []);
+
   const loadInitialData = useCallback(async () => {
     try {
-      const [posRes, sesRes] = await Promise.all([fetch("/api/positions"), fetch("/api/session")]);
+      const [posRes, sesRes, rulesRes] = await Promise.all([
+        fetch("/api/positions"),
+        fetch("/api/session"),
+        fetch("/api/trading-rules"),
+      ]);
       if (posRes.ok) {
         const posData = (await posRes.json()) as ActivePosition[];
         if (Array.isArray(posData)) setPositions(posData);
@@ -145,6 +185,16 @@ export function TradeView() {
           setLeverage(sesData.leverage);
         }
       }
+      if (rulesRes.ok) {
+        const rulesData = (await rulesRes.json()) as {
+          rules?: TradingRulesRecord;
+          todayOpenCount?: number;
+        };
+        if (rulesData.rules) setTradingRules(rulesData.rules);
+        if (typeof rulesData.todayOpenCount === "number") {
+          setTodayOpenCount(rulesData.todayOpenCount);
+        }
+      }
     } catch {
       // Ignore transient errors
     }
@@ -155,7 +205,14 @@ export function TradeView() {
     void loadInitialData();
   }, [fetchMarkets, loadInitialData]);
 
-  // Poll server-authoritative live market ticks (respecting Admin additions & trend controls)
+  // Poll server-authoritative live market ticks & auto-close/balance updates
+  useEffect(() => {
+    const posTimer = window.setInterval(() => {
+      void loadInitialData();
+    }, 1500);
+    return () => window.clearInterval(posTimer);
+  }, [loadInitialData]);
+
   useEffect(() => {
     if (!liveFeedActive) return;
     const timer = window.setInterval(() => {
@@ -200,10 +257,21 @@ export function TradeView() {
   const handleClosePosition = useCallback(
     async (pos: ActivePosition, customPnl?: number, reason?: string) => {
       if (settlingIdsRef.current.has(pos.id)) return;
+
+      const currentNow = Date.now();
+      if (pos.status === "Terbuka" && pos.unlockAtMs && currentNow < pos.unlockAtMs) {
+        const countdown = formatHoldCountdown(pos.unlockAtMs, currentNow);
+        setFeedback({
+          type: "err",
+          text: `Posisi ${pos.id} belum dapat ditutup. Minimal waktu tutup posisi tersisa ${countdown.label}.`,
+        });
+        return;
+      }
+
       settlingIdsRef.current.add(pos.id);
 
       const market = marketMap[pos.symbol];
-      const finalPnl = customPnl ?? computeFloatingPnl(pos, market);
+      const finalPnl = customPnl ?? computeFloatingPnl(pos, market, currentNow);
 
       try {
         const res = await fetch(`/api/positions/${pos.id}/close`, {
@@ -212,40 +280,40 @@ export function TradeView() {
           body: JSON.stringify({ pnl: finalPnl }),
         });
 
-        if (res.ok) {
-          const data = (await res.json()) as {
-            position?: ActivePosition;
-            balance?: number;
-          };
-          setPositions((prev) =>
-            prev.map((item) =>
-              item.id === pos.id
-                ? (data.position ?? { ...item, status: "Ditutup", pnl: finalPnl })
-                : item,
-            ),
-          );
-          if (typeof data.balance === "number") {
-            setBalance(data.balance);
-            saveDemoSession({ balance: data.balance });
-          }
-        } else {
-          setPositions((prev) =>
-            prev.map((item) =>
-              item.id === pos.id ? { ...item, status: "Ditutup", pnl: finalPnl } : item,
-            ),
-          );
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+          position?: ActivePosition;
+          balance?: number;
+        } | null;
+
+        if (!res.ok) {
+          setFeedback({
+            type: "err",
+            text: data?.error ?? `Posisi ${pos.id} belum dapat ditutup saat ini.`,
+          });
+          return;
         }
 
+        const settledPos = data?.position ?? { ...pos, status: "Ditutup" as const, pnl: finalPnl };
+        const realizedPnl = settledPos.pnl;
+
+        setPositions((prev) => prev.map((item) => (item.id === pos.id ? settledPos : item)));
+        if (typeof data?.balance === "number") {
+          setBalance(data.balance);
+          saveDemoSession({ balance: data.balance });
+        }
+
+        const stake = resolvePositionStakeUsd(pos);
         const pnlLabel =
           pos.status === "Terbuka"
-            ? `${finalPnl >= 0 ? "+" : "-"}$${Math.abs(finalPnl).toFixed(2)}`
+            ? `+$${Math.abs(realizedPnl).toFixed(2)} (${formatIdr(Math.abs(realizedPnl) * USD_TO_IDR_RATE)})`
             : "dibatalkan";
         setFeedback({
           type: "ok",
           text:
             reason ??
-            `Posisi ${pos.id} (${pos.symbol} ${pos.side} ${pos.lot.toFixed(2)} lot) ${
-              pos.status === "Terbuka" ? `ditutup dengan realisasi ${pnlLabel}` : "dibatalkan"
+            `Posisi ${pos.id} (${pos.symbol} ${pos.side} · Nominal ${formatUsd(stake)}) ${
+              pos.status === "Terbuka" ? `ditutup dengan profit ${pnlLabel}` : "dibatalkan"
             }.`,
         });
       } finally {
@@ -255,7 +323,7 @@ export function TradeView() {
     [marketMap],
   );
 
-  // Check Limit triggers and SL/TP triggers on every server market update
+  // Check Limit triggers and post-lock Take Profit triggers on market updates
   useEffect(() => {
     for (const pos of positions) {
       if (settlingIdsRef.current.has(pos.id)) continue;
@@ -278,7 +346,7 @@ export function TradeView() {
               );
               setFeedback({
                 type: "ok",
-                text: `Order Limit ${pos.id} (${pos.symbol} ${pos.side}) tereksekusi pada ${pos.entry.toFixed(market.decimals)}.`,
+                text: `Order Limit ${pos.id} (${pos.symbol} ${pos.side}) aktif pada ${pos.entry.toFixed(market.decimals)}.`,
               });
             })
             .finally(() => {
@@ -286,45 +354,40 @@ export function TradeView() {
             });
         }
       } else if (pos.status === "Terbuka") {
+        // Hanya izinkan auto-close Take Profit jika minimal waktu tahan sudah selesai
+        if (pos.unlockAtMs && nowMs < pos.unlockAtMs) continue;
+
         const currentClosePrice = pos.side === "BUY" ? market.bid : market.ask;
-        const slNum = Number.parseFloat(pos.sl);
         const tpNum = Number.parseFloat(pos.tp);
-
-        const hitSl =
-          Number.isFinite(slNum) &&
-          slNum > 0 &&
-          ((pos.side === "BUY" && currentClosePrice <= slNum) ||
-            (pos.side === "SELL" && currentClosePrice >= slNum));
-
         const hitTp =
           Number.isFinite(tpNum) &&
           tpNum > 0 &&
           ((pos.side === "BUY" && currentClosePrice >= tpNum) ||
             (pos.side === "SELL" && currentClosePrice <= tpNum));
 
-        if (hitSl || hitTp) {
-          const realized = computeFloatingPnl(pos, market);
+        if (hitTp) {
+          const realized = computeFloatingPnl(pos, market, nowMs);
           void handleClosePosition(
             pos,
             realized,
-            `${hitTp ? "Take Profit" : "Stop Loss"} terpicu untuk ${pos.id} (${pos.symbol}) pada ${currentClosePrice.toFixed(market.decimals)} (${realized >= 0 ? "+" : "-"}$${Math.abs(realized).toFixed(2)}).`,
+            `Take Profit tercapai untuk ${pos.id} (${pos.symbol}) dengan profit +$${realized.toFixed(2)}.`,
           );
         }
       }
     }
-  }, [marketMap, positions, handleClosePosition]);
+  }, [marketMap, positions, handleClosePosition, nowMs]);
 
-  const parsedLot = Math.max(0.01, Math.min(50, Number.parseFloat(lot) || 0.01));
-  const requiredMargin = computeRequiredMargin(
-    activeMarket,
-    parsedLot,
-    side === "BUY" ? activeMarket.ask : activeMarket.bid,
-    leverage,
-  );
-  const pipValueUsd = useMemo(() => {
-    const raw = activeMarket.pipSize * activeMarket.contractSize * parsedLot;
-    return activeMarket.quoteInJpy ? raw / Math.max(1, activeMarket.bid) : raw;
-  }, [activeMarket, parsedLot]);
+  const rawNominalInput = Number.parseFloat(stakeInput);
+  const parsedNominal =
+    Number.isFinite(rawNominalInput) && rawNominalInput > 0 ? rawNominalInput : 0;
+  const stakeUsd =
+    stakeCurrency === "IDR"
+      ? Number((parsedNominal / USD_TO_IDR_RATE).toFixed(2))
+      : Number(parsedNominal.toFixed(2));
+  const stakeIdr =
+    stakeCurrency === "IDR" ? Math.round(parsedNominal) : Math.round(stakeUsd * USD_TO_IDR_RATE);
+  const computedLot = Number(Math.max(0.01, Math.min(50, stakeUsd / 1000)).toFixed(2));
+  const quotaReached = todayOpenCount >= tradingRules.maxDailyPositions;
 
   // Live Account Margin Telemetry across open positions
   const openPositionsWithLive = useMemo(() => {
@@ -332,20 +395,21 @@ export function TradeView() {
       .filter((p) => p.status === "Terbuka")
       .map((p) => {
         const market = marketMap[p.symbol] ?? activeMarket;
-        const livePnl = computeFloatingPnl(p, market);
+        const livePnl = computeFloatingPnl(p, market, nowMs);
         const currentPrice = p.side === "BUY" ? market.bid : market.ask;
         const posLev = p.leverage ?? leverage;
-        const posMargin = computeRequiredMargin(market, p.lot, p.entry, posLev);
+        const posStake = resolvePositionStakeUsd(p);
         return {
           ...p,
+          stakeUsd: posStake,
           leverage: posLev,
           livePnl,
           currentPrice,
-          posMargin,
+          posMargin: posStake,
           decimals: market.decimals,
         };
       });
-  }, [positions, marketMap, activeMarket, leverage]);
+  }, [positions, marketMap, activeMarket, leverage, nowMs]);
 
   const totalFloatingPnl = useMemo(
     () => openPositionsWithLive.reduce((acc, cur) => acc + cur.livePnl, 0),
@@ -373,9 +437,14 @@ export function TradeView() {
     void updateSession({ leverage: nextLeverage });
   }
 
-  function adjustLot(delta: number) {
-    const next = Math.max(0.01, Math.min(50, Number((parsedLot + delta).toFixed(2))));
-    setLot(next.toFixed(2));
+  function handleSwitchStakeCurrency(nextCurr: DisplayCurrency) {
+    if (nextCurr === stakeCurrency) return;
+    if (nextCurr === "IDR") {
+      setStakeInput(String(Math.max(17000, Math.round(stakeUsd * USD_TO_IDR_RATE))));
+    } else {
+      setStakeInput(String(Math.max(1, Number((stakeIdr / USD_TO_IDR_RATE).toFixed(2)))));
+    }
+    setStakeCurrency(nextCurr);
   }
 
   function applyQuickSlTp(kind: "sl" | "tp", pips: number) {
@@ -393,10 +462,26 @@ export function TradeView() {
   async function handlePlaceOrder() {
     setFeedback(null);
 
-    if (requiredMargin > freeMargin) {
+    if (quotaReached) {
       setFeedback({
         type: "err",
-        text: `Margin bebas tidak cukup ($${freeMargin.toFixed(2)} tersedia, butuh $${requiredMargin.toFixed(2)} dengan leverage 1:${leverage}).`,
+        text: `Batas maksimal open posisi hari ini tercapai (${todayOpenCount}/${tradingRules.maxDailyPositions} kali/hari).`,
+      });
+      return;
+    }
+
+    if (stakeUsd < 1) {
+      setFeedback({
+        type: "err",
+        text: "Masukkan nominal trading minimal $1.00 (Rp 17.000).",
+      });
+      return;
+    }
+
+    if (stakeUsd > freeMargin) {
+      setFeedback({
+        type: "err",
+        text: `Saldo bebas tidak mencukupi (${formatUsd(freeMargin)} / ${formatIdr(freeMargin * USD_TO_IDR_RATE)} tersedia).`,
       });
       return;
     }
@@ -412,7 +497,8 @@ export function TradeView() {
       symbol: activeMarket.symbol,
       type: orderType,
       side,
-      lot: parsedLot,
+      lot: computedLot,
+      stakeUsd,
       leverage,
       entry: Number(entryPrice.toFixed(activeMarket.decimals)),
       sl: stopLoss.trim() || "-",
@@ -434,9 +520,10 @@ export function TradeView() {
       if (json) {
         setPositions((prev) => [json, ...prev]);
         setBottomTab(orderType === "Market" ? "Terbuka" : "Tertunda");
+        void loadTradingRules();
         setFeedback({
           type: "ok",
-          text: `Order ${side} ${parsedLot.toFixed(2)} lot ${activeMarket.symbol} (1:${leverage}) tereksekusi pada ${entryPrice.toFixed(activeMarket.decimals)}.`,
+          text: `Order ${side} ${formatUsd(stakeUsd)} (${formatIdr(stakeIdr)}) pada ${activeMarket.symbol} tereksekusi. Posisi terkunci minimal ${formatMinCloseDuration(tradingRules.minCloseMinutes)}.`,
         });
       }
     } catch {
@@ -519,68 +606,112 @@ export function TradeView() {
       ? ((activeMarket.bid - activeMarket.openDay) / activeMarket.openDay) * 100
       : 0;
 
+  const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
+  const balancePair = formatMoneyPair(balance, displayCurrency);
+  const equityPair = formatMoneyPair(equity, displayCurrency);
+  const floatingPnlPair = formatMoneyPair(totalFloatingPnl, displayCurrency, { signed: true });
+  const usedMarginPair = formatMoneyPair(usedMargin, displayCurrency);
+  const freeMarginPair = formatMoneyPair(freeMargin, displayCurrency);
+  const nominalPair = formatMoneyPair(stakeUsd, displayCurrency);
+
   return (
     <div className="space-y-5">
       {/* Live Account & Margin Bar */}
       <section
         aria-label="Ringkasan margin langsung"
-        className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-3 lg:grid-cols-6"
+        className="rounded-xl border border-border bg-card p-4"
       >
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">Saldo Akun</p>
-          <p className="mt-1 font-mono text-sm font-bold tabular-nums text-foreground">
-            $
-            {balance.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">Ekuitas</p>
-          <p className="mt-1 font-mono text-sm font-bold tabular-nums text-foreground">
-            $
-            {equity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">P&L Mengambang</p>
-          <p
-            className={cn(
-              "mt-1 font-mono text-sm font-bold tabular-nums",
-              totalFloatingPnl >= 0 ? "text-primary" : "text-destructive",
-            )}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2.5">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">Ringkasan Akun & Margin</span>
+            <span>·</span>
+            <span className="font-mono tabular-nums">1 USD = {formatIdr(USD_TO_IDR_RATE)}</span>
+          </div>
+          <div
+            role="group"
+            aria-label="Mata uang ringkasan margin"
+            className="inline-flex items-center rounded-md border border-border bg-background p-0.5 font-mono text-[11px] font-semibold"
           >
-            {totalFloatingPnl >= 0 ? "+" : "-"}${Math.abs(totalFloatingPnl).toFixed(2)}
-          </p>
+            {(["USD", "IDR"] as const).map((curr) => (
+              <button
+                key={curr}
+                type="button"
+                onClick={() => void updateSession({ currency: curr })}
+                aria-pressed={displayCurrency === curr}
+                className={cn(
+                  "rounded px-2 py-0.5 transition-colors",
+                  displayCurrency === curr
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {curr}
+              </button>
+            ))}
+          </div>
         </div>
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">Margin Terpakai</p>
-          <p className="mt-1 font-mono text-sm font-semibold tabular-nums text-foreground">
-            $
-            {usedMargin.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">Margin Bebas</p>
-          <p className="mt-1 font-mono text-sm font-semibold tabular-nums text-foreground">
-            $
-            {freeMargin.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px] font-medium text-muted-foreground">
-            Level Margin (1:{leverage})
-          </p>
-          <p className="mt-1 font-mono text-sm font-bold tabular-nums text-primary">
-            {usedMargin > 0 ? `${marginLevel.toFixed(0)}%` : "—"}
-          </p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground">Saldo Akun</p>
+            <p className="mt-1 font-mono text-sm font-bold tabular-nums text-foreground">
+              {balancePair.primary}
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {balancePair.secondary}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground">Ekuitas</p>
+            <p className="mt-1 font-mono text-sm font-bold tabular-nums text-foreground">
+              {equityPair.primary}
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {equityPair.secondary}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground">P&L Mengambang</p>
+            <p
+              className={cn(
+                "mt-1 font-mono text-sm font-bold tabular-nums",
+                totalFloatingPnl >= 0 ? "text-primary" : "text-destructive",
+              )}
+            >
+              {floatingPnlPair.primary}
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {floatingPnlPair.secondary}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground">Margin Terpakai</p>
+            <p className="mt-1 font-mono text-sm font-semibold tabular-nums text-foreground">
+              {usedMarginPair.primary}
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {usedMarginPair.secondary}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground">Margin Bebas</p>
+            <p className="mt-1 font-mono text-sm font-semibold tabular-nums text-foreground">
+              {freeMarginPair.primary}
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {freeMarginPair.secondary}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground">
+              Level Margin (1:{leverage})
+            </p>
+            <p className="mt-1 font-mono text-sm font-bold tabular-nums text-primary">
+              {usedMargin > 0 ? `${marginLevel.toFixed(0)}%` : "—"}
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {usedMargin > 0 ? "Status margin sehat" : "Belum ada posisi"}
+            </p>
+          </div>
         </div>
       </section>
 
@@ -959,7 +1090,7 @@ export function TradeView() {
                               fontFamily="monospace"
                               fontWeight="bold"
                             >
-                              {pos.side} {pos.lot.toFixed(2)} @{" "}
+                              {pos.side} {formatUsd(pos.stakeUsd)} @{" "}
                               {pos.entry.toFixed(activeMarket.decimals)}
                             </text>
                           </>
@@ -1124,80 +1255,84 @@ export function TradeView() {
               </button>
             </div>
 
-            {/* Lot Size + Presets */}
+            {/* Nominal Trading (USD ↔ IDR) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <label htmlFor="lot-input" className="font-medium text-foreground">
-                  Volume (Lot)
+                <label htmlFor="nominal-input" className="font-medium text-foreground">
+                  Nominal Trading ({stakeCurrency})
                 </label>
-                <span className="font-mono tabular-nums text-muted-foreground">
-                  Nilai Pip: ${pipValueUsd.toFixed(2)}
-                </span>
+                <div className="inline-flex items-center rounded-md border border-border bg-background p-0.5 font-mono text-[11px] font-semibold">
+                  {(["USD", "IDR"] as const).map((curr) => (
+                    <button
+                      key={curr}
+                      type="button"
+                      onClick={() => handleSwitchStakeCurrency(curr)}
+                      className={cn(
+                        "rounded px-2 py-0.5 transition-colors",
+                        stakeCurrency === curr
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {curr}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="grid grid-cols-5 gap-1.5">
-                {LOT_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setLot(preset.toFixed(2))}
-                    className={cn(
-                      "rounded-md border py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
-                      Math.abs(parsedLot - preset) < 0.001
-                        ? "border-primary bg-primary/15 text-primary"
-                        : "border-border bg-background text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {preset.toFixed(2)}
-                  </button>
-                ))}
+                {stakeCurrency === "USD"
+                  ? USD_NOMINAL_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setStakeInput(String(preset))}
+                        className={cn(
+                          "rounded-md border py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
+                          Math.abs(stakeUsd - preset) < 0.01
+                            ? "border-primary bg-primary/15 text-primary"
+                            : "border-border bg-background text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        ${preset}
+                      </button>
+                    ))
+                  : IDR_NOMINAL_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setStakeInput(String(preset))}
+                        className={cn(
+                          "rounded-md border py-1.5 font-mono text-[11px] font-semibold tabular-nums transition-colors",
+                          Math.abs(stakeIdr - preset) < 1000
+                            ? "border-primary bg-primary/15 text-primary"
+                            : "border-border bg-background text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {preset >= 1_000_000
+                          ? `${(preset / 1_000_000).toLocaleString("id-ID")}jt`
+                          : `${Math.round(preset / 1000)}rb`}
+                      </button>
+                    ))}
               </div>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => adjustLot(-0.1)}
-                  className="px-2 font-mono text-xs"
-                >
-                  -0.1
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => adjustLot(-0.01)}
-                  className="px-2 font-mono text-xs"
-                >
-                  -0.01
-                </Button>
-                <Input
-                  id="lot-input"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max="50"
-                  value={lot}
-                  onChange={(e) => setLot(e.target.value)}
-                  className="text-center font-mono font-semibold tabular-nums"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => adjustLot(0.01)}
-                  className="px-2 font-mono text-xs"
-                >
-                  +0.01
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => adjustLot(0.1)}
-                  className="px-2 font-mono text-xs"
-                >
-                  +0.1
-                </Button>
+              <Input
+                id="nominal-input"
+                type="number"
+                step={stakeCurrency === "IDR" ? "10000" : "1"}
+                min={stakeCurrency === "IDR" ? "17000" : "1"}
+                value={stakeInput}
+                onChange={(e) => setStakeInput(e.target.value)}
+                placeholder={stakeCurrency === "IDR" ? "1700000" : "100"}
+                className="font-mono font-semibold tabular-nums"
+              />
+              <div className="flex items-center justify-between rounded-md border border-border/70 bg-background/60 px-3 py-1.5 font-mono text-[11px] tabular-nums">
+                <span className="text-muted-foreground">
+                  Kurs 1 USD = {formatIdr(USD_TO_IDR_RATE)}
+                </span>
+                <span className="font-semibold text-primary">
+                  {stakeCurrency === "USD"
+                    ? `≈ ${formatIdr(stakeIdr)}`
+                    : `≈ ${formatUsd(stakeUsd)}`}
+                </span>
               </div>
             </div>
 
@@ -1268,22 +1403,37 @@ export function TradeView() {
             </div>
 
             <div className="space-y-1.5 border-t border-border pt-3 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Estimasi Margin (1:{leverage})</span>
-                <span className="font-mono font-semibold tabular-nums">
-                  ${requiredMargin.toFixed(2)}
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Modal Posisi Dipilih</span>
+                <span className="text-right font-mono font-semibold tabular-nums">
+                  {nominalPair.primary}{" "}
+                  <span className="text-[11px] font-normal text-muted-foreground">
+                    ({nominalPair.secondary})
+                  </span>
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Komisi Raw</span>
-                <span className="font-mono font-semibold tabular-nums">
-                  ${(parsedLot * 7).toFixed(2)}
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Kuota Open Hari Ini</span>
+                <span
+                  className={cn(
+                    "font-mono font-semibold tabular-nums",
+                    quotaReached ? "text-destructive" : "text-primary",
+                  )}
+                >
+                  {todayOpenCount} / {tradingRules.maxDailyPositions} kali
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Minimal Waktu Tutup</span>
+                <span className="font-mono font-semibold tabular-nums text-foreground">
+                  {formatMinCloseDuration(tradingRules.minCloseMinutes)}
                 </span>
               </div>
             </div>
 
             <Button
               type="button"
+              disabled={quotaReached}
               onClick={() => void handlePlaceOrder()}
               className={cn(
                 "h-11 w-full text-sm font-bold",
@@ -1292,7 +1442,9 @@ export function TradeView() {
                   : "bg-primary text-primary-foreground hover:bg-primary/90",
               )}
             >
-              Eksekusi {side} {parsedLot.toFixed(2)} Lot
+              {quotaReached
+                ? `Batas Harian Tercapai (${todayOpenCount}/${tradingRules.maxDailyPositions})`
+                : `Eksekusi ${side} · ${stakeCurrency === "IDR" ? formatIdr(stakeIdr) : formatUsd(stakeUsd)}`}
             </Button>
 
             {feedback && (
@@ -1305,7 +1457,12 @@ export function TradeView() {
                     : "border-destructive/40 bg-destructive/10 text-destructive",
                 )}
               >
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                <CheckCircle2
+                  className={cn(
+                    "mt-0.5 size-4 shrink-0",
+                    feedback.type === "ok" ? "text-primary" : "text-destructive",
+                  )}
+                />
                 <span>{feedback.text}</span>
               </div>
             )}
@@ -1345,7 +1502,8 @@ export function TradeView() {
             })}
           </div>
           <p className="font-mono text-xs tabular-nums text-muted-foreground">
-            Menutup posisi terbuka otomatis mengkreditkan P&L ke saldo akun.
+            Posisi tertutup otomatis saat waktu minimal tahan selesai · Profit langsung masuk ke
+            saldo.
           </p>
         </div>
 
@@ -1361,73 +1519,119 @@ export function TradeView() {
                   <th className="py-2.5 pr-4 font-medium">ID Order</th>
                   <th className="py-2.5 pr-4 font-medium">Simbol</th>
                   <th className="py-2.5 pr-4 font-medium">Arah</th>
-                  <th className="py-2.5 pr-4 text-right font-medium">Lot & Lev</th>
+                  <th className="py-2.5 pr-4 text-right font-medium">Nominal & Lev</th>
                   <th className="py-2.5 pr-4 text-right font-medium">Masuk</th>
                   <th className="py-2.5 pr-4 text-right font-medium">Harga Kini</th>
                   <th className="py-2.5 pr-4 text-right font-medium">SL / TP</th>
-                  <th className="py-2.5 pr-4 text-right font-medium">P&L</th>
-                  <th className="py-2.5 text-right font-medium">Aksi</th>
+                  <th className="py-2.5 pr-4 text-right font-medium">Profit (P&L)</th>
+                  <th className="py-2.5 text-right font-medium">Aksi / Timer</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
-                {positionsPagination.paginatedItems.map((pos) => (
-                  <tr key={pos.id} className="hover:bg-accent/30">
-                    <td className="py-3 pr-4">
-                      <p className="font-mono text-xs tabular-nums text-foreground">{pos.id}</p>
-                      <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                        {pos.type} · {pos.openedAt}
-                      </p>
-                    </td>
-                    <td className="py-3 pr-4 font-display font-bold">{pos.symbol}</td>
-                    <td
-                      className={cn(
-                        "py-3 pr-4 text-xs font-bold",
-                        pos.side === "BUY" ? "text-primary" : "text-destructive",
-                      )}
-                    >
-                      {pos.side}
-                    </td>
-                    <td className="py-3 pr-4 text-right font-mono tabular-nums">
-                      <p>{pos.lot.toFixed(2)}</p>
-                      <p className="text-[11px] text-muted-foreground">1:{pos.leverage}</p>
-                    </td>
-                    <td className="py-3 pr-4 text-right font-mono tabular-nums">
-                      {pos.entry.toFixed(pos.decimals)}
-                    </td>
-                    <td className="py-3 pr-4 text-right font-mono tabular-nums text-foreground">
-                      {pos.status === "Ditutup" ? "—" : pos.currentPrice.toFixed(pos.decimals)}
-                    </td>
-                    <td className="py-3 pr-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                      {pos.sl} / {pos.tp}
-                    </td>
-                    <td
-                      className={cn(
-                        "py-3 pr-4 text-right font-mono font-semibold tabular-nums",
-                        pos.livePnl >= 0 ? "text-primary" : "text-destructive",
-                      )}
-                    >
-                      {pos.livePnl >= 0
-                        ? `+$${pos.livePnl.toFixed(2)}`
-                        : `-$${Math.abs(pos.livePnl).toFixed(2)}`}
-                    </td>
-                    <td className="py-3 text-right">
-                      {pos.status !== "Ditutup" ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleClosePosition(pos, pos.livePnl)}
-                          className="h-8 gap-1 text-xs text-muted-foreground hover:text-destructive"
-                        >
-                          <X className="size-3.5" />
-                          <span>{pos.status === "Terbuka" ? "Tutup" : "Batalkan"}</span>
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Selesai</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {positionsPagination.paginatedItems.map((pos) => {
+                  const stakeVal = resolvePositionStakeUsd(pos);
+                  const stakePair = formatMoneyPair(stakeVal, displayCurrency);
+                  const lockInfo =
+                    pos.status === "Terbuka"
+                      ? formatHoldCountdown(pos.unlockAtMs, nowMs)
+                      : { locked: false, remainingMs: 0, label: "" };
+
+                  return (
+                    <tr key={pos.id} className="hover:bg-accent/30">
+                      <td className="py-3 pr-4">
+                        <p className="font-mono text-xs tabular-nums text-foreground">{pos.id}</p>
+                        <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                          {pos.type} · {pos.openedAt}
+                        </p>
+                      </td>
+                      <td className="py-3 pr-4 font-display font-bold">{pos.symbol}</td>
+                      <td
+                        className={cn(
+                          "py-3 pr-4 text-xs font-bold",
+                          pos.side === "BUY" ? "text-primary" : "text-destructive",
+                        )}
+                      >
+                        {pos.side}
+                      </td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums">
+                        <p className="font-semibold text-foreground">{stakePair.primary}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {stakePair.secondary} · 1:{pos.leverage}
+                        </p>
+                      </td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums">
+                        {pos.entry.toFixed(pos.decimals)}
+                      </td>
+                      <td className="py-3 pr-4 text-right font-mono tabular-nums text-foreground">
+                        {pos.status === "Ditutup" ? "—" : pos.currentPrice.toFixed(pos.decimals)}
+                      </td>
+                      <td className="py-3 pr-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                        {pos.sl} / {pos.tp}
+                      </td>
+                      <td
+                        className={cn(
+                          "py-3 pr-4 text-right font-mono font-semibold tabular-nums",
+                          pos.livePnl >= 0 ? "text-primary" : "text-destructive",
+                        )}
+                      >
+                        {(() => {
+                          const pnlPair = formatMoneyPair(pos.livePnl, displayCurrency, {
+                            signed: true,
+                          });
+                          return (
+                            <>
+                              <p>{pnlPair.primary}</p>
+                              <p className="text-[11px] font-normal text-muted-foreground">
+                                {pnlPair.secondary}
+                              </p>
+                            </>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-3 text-right">
+                        {pos.status === "Terbuka" ? (
+                          lockInfo.locked ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled
+                              title={`Terkunci hingga waktu minimal tutup selesai (${lockInfo.label})`}
+                              className="h-8 gap-1.5 font-mono text-xs tabular-nums text-amber-400 opacity-85"
+                            >
+                              <Lock className="size-3.5" />
+                              <span>Terkunci {lockInfo.label}</span>
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void handleClosePosition(pos, pos.livePnl)}
+                              className="h-8 gap-1 text-xs text-primary hover:bg-primary/10 hover:text-primary"
+                            >
+                              <X className="size-3.5" />
+                              <span>Tutup</span>
+                            </Button>
+                          )
+                        ) : pos.status === "Tertunda" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void handleClosePosition(pos, 0)}
+                            className="h-8 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                          >
+                            <X className="size-3.5" />
+                            <span>Batalkan</span>
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Selesai</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             <DataPagination

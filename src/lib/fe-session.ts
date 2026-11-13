@@ -45,12 +45,17 @@ export function saveDemoSession(partial: Partial<DemoSession>) {
   notifyListeners();
 }
 
-export async function syncLoginWithExpress(payload: { email?: string; name?: string }) {
+export async function syncLoginWithExpress(payload: {
+  email?: string;
+  name?: string;
+  isRegister?: boolean;
+}) {
   try {
-    const res = await fetch("/api/auth/login", {
+    const endpoint = payload.isRegister ? "/api/auth/register" : "/api/auth/login";
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ email: payload.email, name: payload.name }),
     });
     if (res.ok) {
       const data = (await res.json()) as DemoSession;

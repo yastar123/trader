@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Check, Save, Search, SlidersHorizontal, X } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import {
+  formatIdr,
+  formatMoneyPair,
   formatUsd,
+  USD_TO_IDR_RATE,
   type VerificationStatus,
+  type WalletLimitsRecord,
   type WithdrawRequestRecord,
 } from "@/components/admin/admin-types";
 import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
+import { useAdminCurrency } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
 type StatusFilter = "Semua" | VerificationStatus;
 
 export function AdminWithdrawView() {
+  const { currency } = useAdminCurrency();
   const [withdrawals, setWithdrawals] = useState<WithdrawRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>("Semua");
@@ -22,12 +28,31 @@ export function AdminWithdrawView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
+  const [minWithdrawInput, setMinWithdrawInput] = useState("10");
+  const [maxWithdrawInput, setMaxWithdrawInput] = useState("25000");
+  const [savedLimits, setSavedLimits] = useState<WalletLimitsRecord>({
+    minDeposit: 10,
+    maxDeposit: 50000,
+    minWithdraw: 10,
+    maxWithdraw: 25000,
+  });
+  const [savingLimits, setSavingLimits] = useState(false);
+
   const loadWithdrawals = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/withdrawals");
-      if (res.ok) {
-        const data = (await res.json()) as WithdrawRequestRecord[];
+      const [wdRes, limitRes] = await Promise.all([
+        fetch("/api/admin/withdrawals"),
+        fetch("/api/admin/wallet-limits"),
+      ]);
+      if (wdRes.ok) {
+        const data = (await wdRes.json()) as WithdrawRequestRecord[];
         setWithdrawals(data);
+      }
+      if (limitRes.ok) {
+        const lim = (await limitRes.json()) as WalletLimitsRecord;
+        setSavedLimits(lim);
+        setMinWithdrawInput(String(lim.minWithdraw));
+        setMaxWithdrawInput(String(lim.maxWithdraw));
       }
     } finally {
       setLoading(false);
@@ -37,6 +62,50 @@ export function AdminWithdrawView() {
   useEffect(() => {
     void loadWithdrawals();
   }, [loadWithdrawals]);
+
+  async function handleSaveLimits(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeedback(null);
+    const minWithdraw = Number(minWithdrawInput);
+    const maxWithdraw = Number(maxWithdrawInput);
+    if (!Number.isFinite(minWithdraw) || minWithdraw < 1) {
+      setFeedback({ type: "err", text: "Minimal withdraw harus minimal $1.00 USD." });
+      return;
+    }
+    if (!Number.isFinite(maxWithdraw) || maxWithdraw < minWithdraw) {
+      setFeedback({
+        type: "err",
+        text: "Maksimal withdraw harus lebih besar atau sama dengan minimal withdraw.",
+      });
+      return;
+    }
+
+    setSavingLimits(true);
+    try {
+      const res = await fetch("/api/admin/wallet-limits", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minWithdraw, maxWithdraw }),
+      });
+      const json = (await res.json().catch(() => null)) as
+        (WalletLimitsRecord & { error?: string }) | null;
+      if (!res.ok) {
+        setFeedback({ type: "err", text: json?.error ?? "Gagal memperbarui batas withdraw." });
+        return;
+      }
+      if (json) {
+        setSavedLimits(json);
+        setMinWithdrawInput(String(json.minWithdraw));
+        setMaxWithdrawInput(String(json.maxWithdraw));
+      }
+      setFeedback({
+        type: "ok",
+        text: `Batas withdraw diperbarui: Minimal ${formatUsd(minWithdraw)} — Maksimal ${formatUsd(maxWithdraw)}.`,
+      });
+    } finally {
+      setSavingLimits(false);
+    }
+  }
 
   async function handleVerify(id: string, decision: "approve" | "reject") {
     setBusyId(id);
@@ -123,6 +192,81 @@ export function AdminWithdrawView() {
           </div>
         )}
 
+        <section className="rounded-xl border border-border bg-card p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="size-4 text-primary" />
+              <h2 className="font-display text-base font-bold text-foreground">
+                Pengaturan Batas Nominal Withdraw (USD & Konversi IDR)
+              </h2>
+            </div>
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              Aktif: {formatUsd(savedLimits.minWithdraw)} (
+              {formatIdr(savedLimits.minWithdraw * USD_TO_IDR_RATE)}) –{" "}
+              {formatUsd(savedLimits.maxWithdraw)} (
+              {formatIdr(savedLimits.maxWithdraw * USD_TO_IDR_RATE)})
+            </span>
+          </div>
+
+          <form
+            onSubmit={(e) => void handleSaveLimits(e)}
+            className="mt-4 grid gap-4 sm:grid-cols-3 sm:items-end"
+          >
+            <div>
+              <label
+                htmlFor="admin-min-withdraw"
+                className="block text-xs font-medium text-foreground"
+              >
+                Minimal Withdraw (USD)
+              </label>
+              <Input
+                id="admin-min-withdraw"
+                type="number"
+                min={1}
+                step="0.01"
+                required
+                value={minWithdrawInput}
+                onChange={(e) => setMinWithdrawInput(e.target.value)}
+                className="mt-1.5 h-10 bg-background font-mono tabular-nums"
+              />
+              <p className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                Setara {formatIdr((Number(minWithdrawInput) || 0) * USD_TO_IDR_RATE)}
+              </p>
+            </div>
+            <div>
+              <label
+                htmlFor="admin-max-withdraw"
+                className="block text-xs font-medium text-foreground"
+              >
+                Maksimal Withdraw (USD)
+              </label>
+              <Input
+                id="admin-max-withdraw"
+                type="number"
+                min={1}
+                step="0.01"
+                required
+                value={maxWithdrawInput}
+                onChange={(e) => setMaxWithdrawInput(e.target.value)}
+                className="mt-1.5 h-10 bg-background font-mono tabular-nums"
+              />
+              <p className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                Setara {formatIdr((Number(maxWithdrawInput) || 0) * USD_TO_IDR_RATE)}
+              </p>
+            </div>
+            <div className="sm:pb-5">
+              <Button
+                type="submit"
+                disabled={savingLimits}
+                className="h-10 w-full bg-primary font-bold text-primary-foreground hover:bg-primary/90"
+              >
+                <Save className="mr-2 size-4" />
+                {savingLimits ? "Menyimpan..." : "Simpan Batas Withdraw"}
+              </Button>
+            </div>
+          </form>
+        </section>
+
         <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1">
             {(["Semua", "Menunggu", "Disetujui", "Ditolak"] as const).map((tab) => (
@@ -197,8 +341,18 @@ export function AdminWithdrawView() {
                       <td className="px-4 py-4 font-mono text-xs text-foreground">
                         {item.destination}
                       </td>
-                      <td className="px-4 py-4 text-right font-mono font-bold tabular-nums text-foreground">
-                        {formatUsd(item.amount)}
+                      <td className="px-4 py-4 text-right font-mono tabular-nums text-foreground">
+                        {(() => {
+                          const rowPair = formatMoneyPair(item.amount, currency);
+                          return (
+                            <>
+                              <p className="font-bold">{rowPair.primary}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {rowPair.secondary}
+                              </p>
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-4">
                         <span

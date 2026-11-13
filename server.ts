@@ -5,8 +5,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { db, getStorageStatus, initDatabase, runMarketTickCycle } from "./src/server/db.ts";
 import {
+  computePositionFloatingPnl,
   generateSeedCandles,
   memoryStore,
+  USD_TO_IDR_RATE,
   type CommunityPostRecord,
   type InboxMessage,
   type JournalRecord,
@@ -16,6 +18,16 @@ import {
   type TrendBias,
   type UserProfile,
 } from "./src/server/store.ts";
+
+function sanitizePositionForUser(pos: TradePosition, defaultProfitPercent?: number) {
+  const { adminProfitUsd: _hidden, ...safe } = pos;
+  const market = memoryStore.markets.find((m) => m.symbol === pos.symbol);
+  const livePnl = computePositionFloatingPnl(pos, market, Date.now(), defaultProfitPercent);
+  return {
+    ...safe,
+    livePnl,
+  };
+}
 
 // Load .env into process.env using Node 22 built-in loader if present
 try {
@@ -114,17 +126,59 @@ function createApiRouter() {
     res.json(tx);
   });
 
+  api.get("/wallet/limits", async (_req: Request, res: Response) => {
+    const limits = await db.getWalletLimits();
+    res.json(limits);
+  });
+
+  api.get("/wallet/deposit-methods", async (_req: Request, res: Response) => {
+    const methods = await db.getDepositMethods(false);
+    res.json(methods);
+  });
+
   api.post("/wallet/deposit", async (req: Request, res: Response) => {
     const body = req.body as {
       amount?: number;
+      amountIdr?: number;
       method?: string;
       reference?: string;
       proofImage?: string;
       proofFileName?: string;
     };
-    const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount < 10) {
-      return res.status(400).json({ error: "Nominal deposit minimal $10.00." });
+    const limits = await db.getWalletLimits();
+    const hasAmountIdr = body.amountIdr !== undefined && body.amountIdr !== null;
+    const rawIdr = hasAmountIdr ? Number(body.amountIdr) : Number.NaN;
+    const amountUsd = hasAmountIdr
+      ? Number((rawIdr / USD_TO_IDR_RATE).toFixed(2))
+      : Number(body.amount);
+    const amountIdr = hasAmountIdr
+      ? Math.round(rawIdr)
+      : Math.round((Number.isFinite(amountUsd) ? amountUsd : 0) * USD_TO_IDR_RATE);
+
+    const minIdr = Math.round(limits.minDeposit * USD_TO_IDR_RATE);
+    const maxIdr = Math.round(limits.maxDeposit * USD_TO_IDR_RATE);
+
+    if (!Number.isFinite(amountUsd) || amountUsd < limits.minDeposit) {
+      return res.status(400).json({
+        error: `Nominal deposit minimal Rp ${minIdr.toLocaleString("id-ID")} ($${limits.minDeposit.toLocaleString(
+          "en-US",
+          {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          },
+        )} USD).`,
+      });
+    }
+    if (amountUsd > limits.maxDeposit) {
+      return res.status(400).json({
+        error: `Nominal deposit maksimal Rp ${maxIdr.toLocaleString("id-ID")} ($${limits.maxDeposit.toLocaleString(
+          "en-US",
+          {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          },
+        )} USD) per transaksi.`,
+      });
     }
     const proofImage = typeof body.proofImage === "string" ? body.proofImage.trim() : "";
     if (!proofImage || !proofImage.startsWith("data:image/")) {
@@ -139,7 +193,9 @@ function createApiRouter() {
     }
 
     const created = await db.createDeposit({
-      amount,
+      amount: amountUsd,
+      amountIdr,
+      exchangeRate: USD_TO_IDR_RATE,
       method: body.method?.trim() || "Transfer Bank BCA",
       reference: body.reference?.trim() || `REF-${Math.floor(100000 + Math.random() * 900000)}`,
       proofImage,
@@ -150,9 +206,23 @@ function createApiRouter() {
 
   api.post("/wallet/withdraw", async (req: Request, res: Response) => {
     const body = req.body as { amount?: number; destination?: string };
+    const limits = await db.getWalletLimits();
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount < 10) {
-      return res.status(400).json({ error: "Nominal penarikan minimal $10.00." });
+    if (!Number.isFinite(amount) || amount < limits.minWithdraw) {
+      return res.status(400).json({
+        error: `Nominal penarikan minimal $${limits.minWithdraw.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}.`,
+      });
+    }
+    if (amount > limits.maxWithdraw) {
+      return res.status(400).json({
+        error: `Nominal penarikan maksimal $${limits.maxWithdraw.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} per transaksi.`,
+      });
     }
     const result = await db.createWithdraw({
       amount,
@@ -164,34 +234,63 @@ function createApiRouter() {
     return res.status(201).json(result.withdrawal);
   });
 
-  // Trade Positions
+  // Trading Rules & Daily Quota Summary for Traders (hides admin profit config)
+  api.get("/trading-rules", async (_req: Request, res: Response) => {
+    const summary = await db.getTraderTradingSummary();
+    res.json({
+      rules: {
+        maxDailyPositions: summary.rules.maxDailyPositions,
+        minCloseMinutes: summary.rules.minCloseMinutes,
+      },
+      todayOpenCount: summary.todayOpenCount,
+      todayDate: summary.todayDate,
+    });
+  });
+
+  // Trade Positions (server-computed livePnl; hides adminProfitUsd)
   api.get("/positions", async (_req: Request, res: Response) => {
-    const positions = await db.getUserPositions();
-    res.json(positions);
+    const [positions, rules] = await Promise.all([db.getUserPositions(), db.getTradingRules()]);
+    res.json(positions.map((pos) => sanitizePositionForUser(pos, rules.defaultProfitPercent)));
   });
 
   api.post("/positions", async (req: Request, res: Response) => {
-    const body = req.body as Partial<TradePosition>;
+    const body = req.body as Partial<TradePosition> & { stakeUsd?: number; amountIdr?: number };
     const result = await db.createPosition(body);
     if (result.error) {
       return res.status(400).json({ error: result.error });
     }
-    return res.status(201).json(result.position);
+    const rules = await db.getTradingRules();
+    return res
+      .status(201)
+      .json(sanitizePositionForUser(result.position!, rules.defaultProfitPercent));
   });
 
   api.patch("/positions/:id/activate", async (req: Request, res: Response) => {
     const id = String(req.params["id"] ?? "");
     const updated = await db.activatePosition(id);
     if (!updated) return res.status(404).json({ error: "Order tidak ditemukan" });
-    return res.json(updated);
+    const rules = await db.getTradingRules();
+    return res.json(sanitizePositionForUser(updated, rules.defaultProfitPercent));
   });
 
   api.patch("/positions/:id/close", async (req: Request, res: Response) => {
     const id = String(req.params["id"] ?? "");
     const body = (req.body ?? {}) as { pnl?: number };
-    const closed = await db.closePosition(id, body.pnl);
-    if (!closed) return res.status(404).json({ error: "Posisi tidak ditemukan" });
-    return res.json(closed);
+    const result = await db.closePosition(id, body.pnl);
+    if (!result) return res.status(404).json({ error: "Posisi tidak ditemukan" });
+    if (result.error) {
+      return res.status(result.status ?? 400).json({
+        error: result.error,
+        unlockAtMs: result.unlockAtMs,
+      });
+    }
+    const rules = await db.getTradingRules();
+    return res.json({
+      position: result.position
+        ? sanitizePositionForUser(result.position, rules.defaultProfitPercent)
+        : undefined,
+      balance: result.balance,
+    });
   });
 
   // Journal
@@ -354,6 +453,95 @@ function createApiRouter() {
       return res.status(result.status ?? 400).json({ error: result.error });
     }
     return res.json(result.withdrawal);
+  });
+
+  api.get("/admin/wallet-limits", requireAdmin, async (_req: Request, res: Response) => {
+    const limits = await db.getWalletLimits();
+    res.json(limits);
+  });
+
+  api.put("/admin/wallet-limits", requireAdmin, async (req: Request, res: Response) => {
+    const body = req.body as Partial<{
+      minDeposit: number;
+      maxDeposit: number;
+      minWithdraw: number;
+      maxWithdraw: number;
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.updateWalletLimits(
+      {
+        minDeposit: body.minDeposit !== undefined ? Number(body.minDeposit) : undefined,
+        maxDeposit: body.maxDeposit !== undefined ? Number(body.maxDeposit) : undefined,
+        minWithdraw: body.minWithdraw !== undefined ? Number(body.minWithdraw) : undefined,
+        maxWithdraw: body.maxWithdraw !== undefined ? Number(body.maxWithdraw) : undefined,
+      },
+      adminEmail,
+    );
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.json(result.limits);
+  });
+
+  // Admin Deposit Payment Methods & Transfer Instructions (CRUD)
+  api.get("/admin/deposit-methods", requireAdmin, async (_req: Request, res: Response) => {
+    const methods = await db.getDepositMethods(true);
+    res.json(methods);
+  });
+
+  api.post("/admin/deposit-methods", requireAdmin, async (req: Request, res: Response) => {
+    const body = req.body as Partial<{
+      label: string;
+      accountInfo: string;
+      accountHolder: string;
+      fee: string;
+      eta: string;
+      enabled: boolean;
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.createDepositMethod(
+      {
+        label: body.label ?? "",
+        accountInfo: body.accountInfo ?? "",
+        accountHolder: body.accountHolder ?? "",
+        fee: body.fee ?? "Gratis (0%)",
+        eta: body.eta ?? "5–15 menit setelah verifikasi admin",
+        enabled: body.enabled ?? true,
+      },
+      adminEmail,
+    );
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.status(201).json(result.method);
+  });
+
+  api.patch("/admin/deposit-methods/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = req.body as Partial<{
+      label: string;
+      accountInfo: string;
+      accountHolder: string;
+      fee: string;
+      eta: string;
+      enabled: boolean;
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.updateDepositMethod(id, body, adminEmail);
+    if (result.error) {
+      return res.status(404).json({ error: result.error });
+    }
+    return res.json(result.method);
+  });
+
+  api.delete("/admin/deposit-methods/:id", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.deleteDepositMethod(id, adminEmail);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.json({ ok: true });
   });
 
   api.get("/admin/users", requireAdmin, async (_req: Request, res: Response) => {
@@ -553,16 +741,58 @@ function createApiRouter() {
     return res.json({ ok: true });
   });
 
-  // Admin All-User Live Positions Monitor
+  // Admin Trading Rules (Max Daily Open Positions, Min Hold Duration & Default Profit %)
+  api.get("/admin/trading-rules", requireAdmin, async (_req: Request, res: Response) => {
+    const rules = await db.getTradingRules();
+    res.json(rules);
+  });
+
+  api.put("/admin/trading-rules", requireAdmin, async (req: Request, res: Response) => {
+    const body = req.body as Partial<{
+      maxDailyPositions: number;
+      minCloseMinutes: number;
+      defaultProfitPercent: number;
+    }>;
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.updateTradingRules(
+      {
+        maxDailyPositions:
+          body.maxDailyPositions !== undefined ? Number(body.maxDailyPositions) : undefined,
+        minCloseMinutes:
+          body.minCloseMinutes !== undefined ? Number(body.minCloseMinutes) : undefined,
+        defaultProfitPercent:
+          body.defaultProfitPercent !== undefined ? Number(body.defaultProfitPercent) : undefined,
+      },
+      adminEmail,
+    );
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.json(result.rules);
+  });
+
+  // Admin All-User Live Positions Monitor & Per-Position Profit Control
   api.get("/admin/positions", requireAdmin, async (_req: Request, res: Response) => {
     const enriched = await db.getAdminPositions();
     res.json(enriched);
   });
 
+  api.patch("/admin/positions/:id/profit", requireAdmin, async (req: Request, res: Response) => {
+    const id = String(req.params["id"] ?? "");
+    const body = (req.body ?? {}) as { profitUsd?: number };
+    const adminEmail = String(res.locals["adminEmail"] ?? "admin");
+    const result = await db.setPositionAdminProfit(id, Number(body.profitUsd), adminEmail);
+    if (result.error) {
+      return res.status(result.status ?? 400).json({ error: result.error });
+    }
+    return res.json(result.position);
+  });
+
   api.patch("/admin/positions/:id/close", requireAdmin, async (req: Request, res: Response) => {
     const id = String(req.params["id"] ?? "");
+    const body = (req.body ?? {}) as { profitUsd?: number };
     const adminEmail = String(res.locals["adminEmail"] ?? "admin");
-    const closed = await db.adminClosePosition(id, adminEmail);
+    const closed = await db.adminClosePosition(id, adminEmail, body.profitUsd);
     if (!closed) return res.status(404).json({ error: "Posisi tidak ditemukan." });
     return res.json(closed);
   });

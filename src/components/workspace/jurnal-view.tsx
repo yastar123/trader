@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { DataPagination, usePagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { formatMoneyPair, type DisplayCurrency } from "@/lib/currency";
+import { useDemoSession } from "@/lib/fe-session";
 import { cn } from "@/lib/utils";
 
 type StrategyType = "Breakout" | "Pullback" | "Scalping" | "Swing";
@@ -83,6 +85,8 @@ const initialEntries: JournalEntry[] = [
 ];
 
 export function JurnalView() {
+  const { session } = useDemoSession();
+  const displayCurrency: DisplayCurrency = session.currency === "IDR" ? "IDR" : "USD";
   const [entries, setEntries] = useState<JournalEntry[]>(initialEntries);
   const [resultFilter, setResultFilter] = useState<"Semua" | "Profit" | "Loss">("Semua");
   const [strategyFilter, setStrategyFilter] = useState<"Semua" | StrategyType>("Semua");
@@ -226,16 +230,24 @@ export function JurnalView() {
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">Net P&L Tercatat</p>
-          <p
-            className={cn(
-              "mt-2 font-mono text-2xl font-bold tabular-nums",
-              stats.netPnl >= 0 ? "text-primary" : "text-destructive",
-            )}
-          >
-            {stats.netPnl >= 0
-              ? `+$${stats.netPnl.toFixed(2)}`
-              : `-$${Math.abs(stats.netPnl).toFixed(2)}`}
-          </p>
+          {(() => {
+            const netPair = formatMoneyPair(stats.netPnl, displayCurrency, { signed: true });
+            return (
+              <>
+                <p
+                  className={cn(
+                    "mt-2 font-mono text-2xl font-bold tabular-nums",
+                    stats.netPnl >= 0 ? "text-primary" : "text-destructive",
+                  )}
+                >
+                  {netPair.primary}
+                </p>
+                <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+                  ≈ {netPair.secondary}
+                </p>
+              </>
+            );
+          })()}
         </div>
       </section>
 
@@ -471,9 +483,19 @@ export function JurnalView() {
                         item.pnl >= 0 ? "text-primary" : "text-destructive",
                       )}
                     >
-                      {item.pnl >= 0
-                        ? `+$${item.pnl.toFixed(2)}`
-                        : `-$${Math.abs(item.pnl).toFixed(2)}`}
+                      {(() => {
+                        const rowPair = formatMoneyPair(item.pnl, displayCurrency, {
+                          signed: true,
+                        });
+                        return (
+                          <>
+                            <p>{rowPair.primary}</p>
+                            <p className="text-[11px] font-normal text-muted-foreground">
+                              {rowPair.secondary}
+                            </p>
+                          </>
+                        );
+                      })()}
                     </td>
                     <td className="max-w-xs py-3.5 pr-4 text-xs leading-5 text-muted-foreground">
                       {item.notes}
