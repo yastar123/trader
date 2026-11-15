@@ -1059,52 +1059,17 @@ async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        ws: false,
+      },
     });
     app.use(vite.middlewares);
   } else {
     const clientDir = path.resolve(process.cwd(), "dist/client");
     if (fs.existsSync(clientDir)) {
       app.use(express.static(clientDir, { index: false }));
-    }
-
-    const ssrCandidates = [
-      path.resolve(process.cwd(), "dist/server/server.js"),
-      path.resolve(process.cwd(), "dist/server/index.mjs"),
-    ];
-    const ssrEntryPath = ssrCandidates.find((candidate) => fs.existsSync(candidate));
-    if (ssrEntryPath) {
-      const serverMod = (await import(pathToFileURL(ssrEntryPath).href)) as {
-        default?: { fetch: (req: globalThis.Request) => Promise<globalThis.Response> };
-      };
-      const fetchHandler = serverMod.default?.fetch;
-      if (fetchHandler) {
-        app.use(async (req: Request, res: Response, next) => {
-          try {
-            const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-            const headers = new Headers();
-            for (const [key, val] of Object.entries(req.headers)) {
-              if (typeof val === "string") headers.set(key, val);
-              else if (Array.isArray(val)) headers.set(key, val.join(", "));
-            }
-            const webReq = new globalThis.Request(url, {
-              method: req.method,
-              headers,
-            });
-            const webRes = await fetchHandler(webReq);
-            res.status(webRes.status);
-            webRes.headers.forEach((value, key) => {
-              if (key.toLowerCase() !== "content-encoding") {
-                res.setHeader(key, value);
-              }
-            });
-            const arrayBuf = await webRes.arrayBuffer();
-            res.send(Buffer.from(arrayBuf));
-          } catch (err) {
-            next(err);
-          }
-        });
-      }
     }
 
     app.use((_req: Request, res: Response) => {
@@ -1119,6 +1084,13 @@ async function startServer() {
 
   // Bind port utama sesuai .env (default 3010)
   const primaryServer = http.createServer(app);
+  primaryServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.warn(`Port ${PORT} is already in use.`);
+    } else {
+      console.error("Primary server error:", err);
+    }
+  });
   primaryServer.listen(PORT, HOST, () => {
     console.log(`Express + React server running at http://${HOST}:${PORT}`);
   });

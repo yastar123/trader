@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { Pool, type PoolClient } from "pg";
 import {
+  calculateLotFromStakeUsd,
+  calculateLotPriceUsd,
   formatHoldCountdown,
   formatMinCloseDuration,
   resolvePositionStakeUsd,
@@ -1395,24 +1397,6 @@ export const db = {
     const rules = await this.getTradingRules();
     const todayDate = getWibDateKey();
 
-    const rawIdr =
-      body.amountIdr !== undefined && body.amountIdr !== null ? Number(body.amountIdr) : Number.NaN;
-    const rawUsd =
-      body.stakeUsd !== undefined && body.stakeUsd !== null ? Number(body.stakeUsd) : Number.NaN;
-    let stakeUsd =
-      Number.isFinite(rawUsd) && rawUsd > 0
-        ? Number(rawUsd.toFixed(2))
-        : Number.isFinite(rawIdr) && rawIdr > 0
-          ? Number((rawIdr / USD_TO_IDR_RATE).toFixed(2))
-          : Number(body.lot) > 0
-            ? Number((Number(body.lot) * 1000).toFixed(2))
-            : Number.NaN;
-
-    if (!Number.isFinite(stakeUsd) || stakeUsd < 1) {
-      return { error: "Nominal posisi minimal $1.00 (Rp 17.000)." };
-    }
-    stakeUsd = Number(stakeUsd.toFixed(2));
-    const lot = Number(Math.max(0.01, Math.min(50, stakeUsd / 1000)).toFixed(2));
     const isLimit = body.type === "Limit";
     const nowMs = Date.now();
     const openedAtMs = isLimit ? 0 : nowMs;
@@ -1429,6 +1413,48 @@ export const db = {
     if (!Number.isFinite(entry) || entry <= 0) {
       return { error: "Harga order wajib diisi dengan nilai yang valid." };
     }
+
+    const rawIdr =
+      body.amountIdr !== undefined && body.amountIdr !== null ? Number(body.amountIdr) : Number.NaN;
+    const rawUsd =
+      body.stakeUsd !== undefined && body.stakeUsd !== null ? Number(body.stakeUsd) : Number.NaN;
+    const rawLot = body.lot !== undefined && body.lot !== null ? Number(body.lot) : Number.NaN;
+    const resolvedLeverage = Math.max(
+      50,
+      Math.min(1000, Number(body.leverage) || memoryStore.profile.leverage || 500),
+    );
+    const contractSize = spec.contractSize ?? 100000;
+    const quoteInJpy = Boolean(spec.quoteInJpy);
+
+    let stakeUsd =
+      Number.isFinite(rawUsd) && rawUsd > 0
+        ? Number(rawUsd.toFixed(2))
+        : Number.isFinite(rawIdr) && rawIdr > 0
+          ? Number((rawIdr / USD_TO_IDR_RATE).toFixed(2))
+          : Number.isFinite(rawLot) && rawLot > 0
+            ? calculateLotPriceUsd({
+                lot: rawLot,
+                price: entry,
+                contractSize,
+                leverage: resolvedLeverage,
+                quoteInJpy,
+              }).marginUsd
+            : Number.NaN;
+
+    if (!Number.isFinite(stakeUsd) || stakeUsd < 1) {
+      return { error: "Nominal posisi minimal $1.00 (Rp 17.000)." };
+    }
+    stakeUsd = Number(stakeUsd.toFixed(2));
+    const lot =
+      Number.isFinite(rawLot) && rawLot > 0
+        ? Number(Math.max(0.01, Math.min(100, rawLot)).toFixed(2))
+        : calculateLotFromStakeUsd({
+            stakeUsd,
+            price: entry,
+            contractSize,
+            leverage: resolvedLeverage,
+            quoteInJpy,
+          });
 
     if (!pgReady || !pool) {
       const currentUser = memoryStore.users.find(

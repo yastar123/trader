@@ -865,4 +865,44 @@ describe("Interactive UI Views & Menus Smoke Tests", () => {
       screen.getByText("Pengaturan Batas Nominal Deposit (USD & Konversi IDR)"),
     ).toBeInTheDocument();
   });
+
+  it("supports lot-based position pricing, steppers, and two-way USD/IDR nominal sync on TradeView", async () => {
+    renderWithQuery(<TradeView />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("Ukuran Lot (Volume)")).toBeInTheDocument();
+    });
+
+    const lotInput = screen.getByLabelText("Ukuran Lot (Volume)") as HTMLInputElement;
+    const nominalInput = screen.getByLabelText(/Harga Posisi \/ Nominal/i) as HTMLInputElement;
+
+    expect(lotInput.value).toBe("0.10");
+    const initialUsd = Number(nominalInput.value);
+    expect(initialUsd).toBeGreaterThan(0);
+
+    // Click quick lot preset 0.50 -> price should scale ~5x
+    fireEvent.click(screen.getByRole("button", { name: "0.50" }));
+    expect(lotInput.value).toBe("0.50");
+    const halfLotUsd = Number(nominalInput.value);
+    expect(halfLotUsd).toBeGreaterThan(initialUsd * 4.5);
+    expect(screen.getByRole("button", { name: /Eksekusi BUY 0\.50 Lot/i })).toBeInTheDocument();
+
+    // Increment lot via + stepper -> 0.51 lot and nominal rises
+    fireEvent.click(screen.getByRole("button", { name: "Tambah lot" }));
+    expect(lotInput.value).toBe("0.51");
+    expect(Number(nominalInput.value)).toBeGreaterThan(halfLotUsd);
+
+    // Decrement lot via - stepper -> back to 0.50
+    fireEvent.click(screen.getByRole("button", { name: "Kurangi lot" }));
+    expect(lotInput.value).toBe("0.50");
+
+    // Edit nominal directly -> lot recalculates dynamically
+    fireEvent.change(nominalInput, { target: { value: "500" } });
+    expect(nominalInput.value).toBe("500");
+    expect(Number(lotInput.value)).toBeGreaterThan(1);
+
+    // Switch currency toggle to IDR -> nominal reflects 1 USD = Rp 17.000
+    const idrButtons = screen.getAllByRole("button", { name: "IDR" });
+    fireEvent.click(idrButtons[idrButtons.length - 1]);
+    expect(Number(nominalInput.value)).toBe(500 * USD_TO_IDR_RATE);
+  });
 });

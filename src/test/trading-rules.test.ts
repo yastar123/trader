@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  calculateLotFromStakeUsd,
+  calculateLotPriceUsd,
   computeGuaranteedPositionPnl,
   DEFAULT_TRADING_RULES,
   formatHoldCountdown,
@@ -191,5 +193,82 @@ describe("Trading Mechanics: Guaranteed Profit, Hold Lock & Daily Quota", () => 
     // Admin cannot edit profit after position is closed
     const postCloseEdit = await db.setPositionAdminProfit(posId, 90, "admin@ictrading.id");
     expect(postCloseEdit.error).toContain("sudah ditutup");
+  });
+
+  it("calculates lot-based pricing accurately across Forex, Gold, JPY quote, and persists lot orders", async () => {
+    // Forex EURUSD: 0.10 * 100000 * 1.08452 = $10,845.20 notional; @ 1:500 = $21.69 margin
+    const fx = calculateLotPriceUsd({
+      lot: 0.1,
+      price: 1.08452,
+      contractSize: 100000,
+      leverage: 500,
+    });
+    expect(fx.lot).toBe(0.1);
+    expect(fx.notionalUsd).toBe(10845.2);
+    expect(fx.marginUsd).toBe(21.69);
+
+    // Gold XAUUSD: 0.50 * 100 * 2684.4 = $134,220 notional; @ 1:500 = $268.44 margin
+    const gold = calculateLotPriceUsd({
+      lot: 0.5,
+      price: 2684.4,
+      contractSize: 100,
+      leverage: 500,
+    });
+    expect(gold.notionalUsd).toBe(134220);
+    expect(gold.marginUsd).toBe(268.44);
+
+    // USDJPY (quoteInJpy): notional is in base USD = lot * contractSize = 0.25 * 100000 = $25,000; @ 1:500 = $50.00
+    const jpy = calculateLotPriceUsd({
+      lot: 0.25,
+      price: 152.34,
+      contractSize: 100000,
+      leverage: 500,
+      quoteInJpy: true,
+    });
+    expect(jpy.notionalUsd).toBe(25000);
+    expect(jpy.marginUsd).toBe(50);
+
+    // Minimum $1.00 margin floor for micro lots on high leverage
+    const micro = calculateLotPriceUsd({
+      lot: 0.01,
+      price: 71.85,
+      contractSize: 1000,
+      leverage: 1000,
+    });
+    expect(micro.marginUsd).toBe(1);
+
+    // Inverse calculation: stakeUsd -> lot (and clamping 0.01..100)
+    const inverseLot = calculateLotFromStakeUsd({
+      stakeUsd: 268.44,
+      price: 2684.4,
+      contractSize: 100,
+      leverage: 500,
+    });
+    expect(inverseLot).toBe(0.5);
+    expect(
+      calculateLotFromStakeUsd({
+        stakeUsd: 0.05,
+        price: 2684.4,
+        contractSize: 100,
+        leverage: 500,
+      }),
+    ).toBe(0.01);
+
+    // db.createPosition with lot only computes stakeUsd from lot pricing and preserves exact lot
+    await db.updateTradingRules(
+      { maxDailyPositions: 10, minCloseMinutes: 5 },
+      "admin@ictrading.id",
+    );
+    const createdByLot = await db.createPosition({
+      symbol: "EURUSD",
+      type: "Market",
+      side: "BUY",
+      lot: 0.5,
+      leverage: 500,
+      entry: 1.08452,
+    });
+    expect(createdByLot.error).toBeUndefined();
+    expect(createdByLot.position?.lot).toBe(0.5);
+    expect(createdByLot.position?.stakeUsd).toBe(108.45);
   });
 });

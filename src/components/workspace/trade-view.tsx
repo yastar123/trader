@@ -13,6 +13,8 @@ import {
 } from "@/lib/currency";
 import { saveDemoSession, useDemoSession } from "@/lib/fe-session";
 import {
+  calculateLotFromStakeUsd,
+  calculateLotPriceUsd,
   computeGuaranteedPositionPnl,
   DEFAULT_TRADING_RULES,
   formatHoldCountdown,
@@ -73,6 +75,7 @@ const FALLBACK_MARKETS: MarketInstrumentRecord[] = [
   },
 ];
 
+const LOT_PRESETS = [0.01, 0.05, 0.1, 0.5, 1] as const;
 const USD_NOMINAL_PRESETS = [50, 100, 250, 500, 1000] as const;
 const IDR_NOMINAL_PRESETS = [850000, 1700000, 4250000, 8500000, 17000000] as const;
 const LEVERAGE_TIERS = [50, 100, 200, 500, 1000] as const;
@@ -110,6 +113,8 @@ export function TradeView({
 
   const [orderType, setOrderType] = useState<"Market" | "Limit">("Market");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
+  const [sizeMode, setSizeMode] = useState<"lot" | "nominal">("lot");
+  const [lotInput, setLotInput] = useState("0.10");
   const [stakeCurrency, setStakeCurrency] = useState<DisplayCurrency>(
     session.currency === "IDR" ? "IDR" : "USD",
   );
@@ -387,16 +392,87 @@ export function TradeView({
     }
   }, [marketMap, positions, handleClosePosition, nowMs]);
 
+  const activeRefPrice =
+    orderType === "Limit" && Number.parseFloat(limitPrice) > 0
+      ? Number.parseFloat(limitPrice)
+      : side === "BUY"
+        ? activeMarket.ask
+        : activeMarket.bid;
+
+  const parsedLotRaw = Number.parseFloat(lotInput);
+  const parsedLot =
+    Number.isFinite(parsedLotRaw) && parsedLotRaw > 0
+      ? Number(Math.min(100, parsedLotRaw).toFixed(2))
+      : 0;
+
   const rawNominalInput = Number.parseFloat(stakeInput);
   const parsedNominal =
     Number.isFinite(rawNominalInput) && rawNominalInput > 0 ? rawNominalInput : 0;
+
+  const lotPricing = calculateLotPriceUsd({
+    lot: parsedLot > 0 ? parsedLot : 0.01,
+    price: activeRefPrice,
+    contractSize: activeMarket.contractSize,
+    leverage,
+    quoteInJpy: activeMarket.quoteInJpy,
+  });
+
+  const minLotPricing = calculateLotPriceUsd({
+    lot: 0.01,
+    price: activeRefPrice,
+    contractSize: activeMarket.contractSize,
+    leverage,
+    quoteInJpy: activeMarket.quoteInJpy,
+  });
+
   const stakeUsd =
-    stakeCurrency === "IDR"
-      ? Number((parsedNominal / USD_TO_IDR_RATE).toFixed(2))
-      : Number(parsedNominal.toFixed(2));
+    sizeMode === "lot"
+      ? parsedLot > 0
+        ? lotPricing.marginUsd
+        : 0
+      : stakeCurrency === "IDR"
+        ? Number((parsedNominal / USD_TO_IDR_RATE).toFixed(2))
+        : Number(parsedNominal.toFixed(2));
+
   const stakeIdr =
-    stakeCurrency === "IDR" ? Math.round(parsedNominal) : Math.round(stakeUsd * USD_TO_IDR_RATE);
-  const computedLot = Number(Math.max(0.01, Math.min(50, stakeUsd / 1000)).toFixed(2));
+    sizeMode === "lot"
+      ? Math.round(stakeUsd * USD_TO_IDR_RATE)
+      : stakeCurrency === "IDR"
+        ? Math.round(parsedNominal)
+        : Math.round(stakeUsd * USD_TO_IDR_RATE);
+
+  const computedLot =
+    sizeMode === "lot"
+      ? parsedLot > 0
+        ? lotPricing.lot
+        : 0.01
+      : stakeUsd > 0
+        ? calculateLotFromStakeUsd({
+            stakeUsd,
+            price: activeRefPrice,
+            contractSize: activeMarket.contractSize,
+            leverage,
+            quoteInJpy: activeMarket.quoteInJpy,
+          })
+        : 0.01;
+
+  const notionalUsd =
+    sizeMode === "lot"
+      ? parsedLot > 0
+        ? lotPricing.notionalUsd
+        : 0
+      : Number((stakeUsd * leverage).toFixed(2));
+
+  const displayedLotInput = sizeMode === "nominal" ? computedLot.toFixed(2) : lotInput;
+  const displayedNominalInput =
+    sizeMode === "lot"
+      ? stakeUsd > 0
+        ? stakeCurrency === "IDR"
+          ? String(stakeIdr)
+          : stakeUsd.toFixed(2)
+        : ""
+      : stakeInput;
+
   const quotaReached = todayOpenCount >= tradingRules.maxDailyPositions;
 
   // Live Account Margin Telemetry across open positions
@@ -449,12 +525,31 @@ export function TradeView({
 
   function handleSwitchStakeCurrency(nextCurr: DisplayCurrency) {
     if (nextCurr === stakeCurrency) return;
-    if (nextCurr === "IDR") {
-      setStakeInput(String(Math.max(17000, Math.round(stakeUsd * USD_TO_IDR_RATE))));
-    } else {
-      setStakeInput(String(Math.max(1, Number((stakeIdr / USD_TO_IDR_RATE).toFixed(2)))));
+    if (sizeMode === "nominal") {
+      if (nextCurr === "IDR") {
+        setStakeInput(String(Math.max(17000, Math.round(stakeUsd * USD_TO_IDR_RATE))));
+      } else {
+        setStakeInput(String(Math.max(1, Number((stakeIdr / USD_TO_IDR_RATE).toFixed(2)))));
+      }
     }
     setStakeCurrency(nextCurr);
+  }
+
+  function handleLotValueChange(nextValue: string) {
+    setSizeMode("lot");
+    setLotInput(nextValue);
+  }
+
+  function handleStepLot(delta: number) {
+    const base = computedLot > 0 ? computedLot : 0.1;
+    const next = Math.max(0.01, Math.min(100, Number((base + delta).toFixed(2))));
+    setSizeMode("lot");
+    setLotInput(next.toFixed(2));
+  }
+
+  function handleNominalValueChange(nextValue: string) {
+    setSizeMode("nominal");
+    setStakeInput(nextValue);
   }
 
   function applyQuickSlTp(kind: "sl" | "tp", pips: number) {
@@ -533,7 +628,7 @@ export function TradeView({
         void loadTradingRules();
         setFeedback({
           type: "ok",
-          text: `Order ${side} ${formatUsd(stakeUsd)} (${formatIdr(stakeIdr)}) pada ${activeMarket.symbol} tereksekusi. Posisi terkunci minimal ${formatMinCloseDuration(tradingRules.minCloseMinutes)}.`,
+          text: `Order ${side} ${computedLot.toFixed(2)} lot · ${formatUsd(stakeUsd)} (${formatIdr(stakeIdr)}) pada ${activeMarket.symbol} tereksekusi. Posisi terkunci minimal ${formatMinCloseDuration(tradingRules.minCloseMinutes)}.`,
         });
       }
     } catch {
@@ -1294,11 +1389,80 @@ export function TradeView({
               </button>
             </div>
 
-            {/* Nominal Trading (USD ↔ IDR) */}
+            {/* Ukuran Lot (Atur Harga Berdasarkan Lot) */}
+            <div className="space-y-2 rounded-lg border border-border/80 bg-background/50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <label htmlFor="lot-input" className="font-semibold text-foreground">
+                  Ukuran Lot (Volume)
+                </label>
+                <span className="font-mono text-[11px] tabular-nums text-primary">
+                  0.01 lot ={" "}
+                  {stakeCurrency === "IDR"
+                    ? formatIdr(minLotPricing.marginUsd * USD_TO_IDR_RATE)
+                    : formatUsd(minLotPricing.marginUsd)}
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                {LOT_PRESETS.map((presetLot) => (
+                  <button
+                    key={presetLot}
+                    type="button"
+                    onClick={() => handleLotValueChange(presetLot.toFixed(2))}
+                    className={cn(
+                      "rounded-md border py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
+                      Math.abs(computedLot - presetLot) < 0.005
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border bg-card text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {presetLot.toFixed(2)}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Kurangi lot"
+                  onClick={() => handleStepLot(-0.01)}
+                  className="h-9 w-9 shrink-0 px-0 font-mono text-base font-bold"
+                >
+                  −
+                </Button>
+                <Input
+                  id="lot-input"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max="100"
+                  value={displayedLotInput}
+                  onChange={(e) => handleLotValueChange(e.target.value)}
+                  placeholder="0.10"
+                  className="h-9 text-center font-mono font-bold tabular-nums"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Tambah lot"
+                  onClick={() => handleStepLot(0.01)}
+                  className="h-9 w-9 shrink-0 px-0 font-mono text-base font-bold"
+                >
+                  +
+                </Button>
+              </div>
+              <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-muted-foreground">
+                <span>Nilai Kontrak ({computedLot.toFixed(2)} lot)</span>
+                <span className="font-semibold text-foreground">{formatUsd(notionalUsd)}</span>
+              </div>
+            </div>
+
+            {/* Harga Posisi / Nominal Trading (USD ↔ IDR) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <label htmlFor="nominal-input" className="font-medium text-foreground">
-                  Nominal Trading ({stakeCurrency})
+                  Harga Posisi / Nominal ({stakeCurrency})
                 </label>
                 <div className="inline-flex items-center rounded-md border border-border bg-background p-0.5 font-mono text-[11px] font-semibold">
                   {(["USD", "IDR"] as const).map((curr) => (
@@ -1324,10 +1488,10 @@ export function TradeView({
                       <button
                         key={preset}
                         type="button"
-                        onClick={() => setStakeInput(String(preset))}
+                        onClick={() => handleNominalValueChange(String(preset))}
                         className={cn(
                           "rounded-md border py-1.5 font-mono text-xs font-semibold tabular-nums transition-colors",
-                          Math.abs(stakeUsd - preset) < 0.01
+                          sizeMode === "nominal" && Math.abs(stakeUsd - preset) < 0.01
                             ? "border-primary bg-primary/15 text-primary"
                             : "border-border bg-background text-muted-foreground hover:text-foreground",
                         )}
@@ -1339,10 +1503,10 @@ export function TradeView({
                       <button
                         key={preset}
                         type="button"
-                        onClick={() => setStakeInput(String(preset))}
+                        onClick={() => handleNominalValueChange(String(preset))}
                         className={cn(
                           "rounded-md border py-1.5 font-mono text-[11px] font-semibold tabular-nums transition-colors",
-                          Math.abs(stakeIdr - preset) < 1000
+                          sizeMode === "nominal" && Math.abs(stakeIdr - preset) < 1000
                             ? "border-primary bg-primary/15 text-primary"
                             : "border-border bg-background text-muted-foreground hover:text-foreground",
                         )}
@@ -1356,10 +1520,10 @@ export function TradeView({
               <Input
                 id="nominal-input"
                 type="number"
-                step={stakeCurrency === "IDR" ? "10000" : "1"}
+                step={stakeCurrency === "IDR" ? "10000" : "0.01"}
                 min={stakeCurrency === "IDR" ? "17000" : "1"}
-                value={stakeInput}
-                onChange={(e) => setStakeInput(e.target.value)}
+                value={displayedNominalInput}
+                onChange={(e) => handleNominalValueChange(e.target.value)}
                 placeholder={stakeCurrency === "IDR" ? "1700000" : "100"}
                 className="font-mono font-semibold tabular-nums"
               />
@@ -1443,9 +1607,9 @@ export function TradeView({
 
             <div className="space-y-1.5 border-t border-border pt-3 text-xs">
               <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">Modal Posisi Dipilih</span>
+                <span className="text-muted-foreground">Ukuran Lot & Modal Posisi</span>
                 <span className="text-right font-mono font-semibold tabular-nums">
-                  {nominalPair.primary}{" "}
+                  {computedLot.toFixed(2)} lot · {nominalPair.primary}{" "}
                   <span className="text-[11px] font-normal text-muted-foreground">
                     ({nominalPair.secondary})
                   </span>
@@ -1483,7 +1647,7 @@ export function TradeView({
             >
               {quotaReached
                 ? `Batas Harian Tercapai (${todayOpenCount}/${tradingRules.maxDailyPositions})`
-                : `Eksekusi ${side} · ${stakeCurrency === "IDR" ? formatIdr(stakeIdr) : formatUsd(stakeUsd)}`}
+                : `Eksekusi ${side} ${computedLot.toFixed(2)} Lot · ${stakeCurrency === "IDR" ? formatIdr(stakeIdr) : formatUsd(stakeUsd)}`}
             </Button>
 
             {feedback && (
@@ -1685,7 +1849,7 @@ export function TradeView({
                   <th className="py-2.5 pr-4 font-medium">ID Order</th>
                   <th className="py-2.5 pr-4 font-medium">Simbol</th>
                   <th className="py-2.5 pr-4 font-medium">Arah</th>
-                  <th className="py-2.5 pr-4 text-right font-medium">Nominal & Lev</th>
+                  <th className="py-2.5 pr-4 text-right font-medium">Lot & Nominal</th>
                   <th className="py-2.5 pr-4 text-right font-medium">Masuk</th>
                   <th className="py-2.5 pr-4 text-right font-medium">Harga Kini</th>
                   <th className="py-2.5 pr-4 text-right font-medium">SL / TP</th>
@@ -1720,7 +1884,9 @@ export function TradeView({
                         {pos.side}
                       </td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums">
-                        <p className="font-semibold text-foreground">{stakePair.primary}</p>
+                        <p className="font-semibold text-foreground">
+                          {pos.lot.toFixed(2)} lot · {stakePair.primary}
+                        </p>
                         <p className="text-[11px] text-muted-foreground">
                           {stakePair.secondary} · 1:{pos.leverage}
                         </p>

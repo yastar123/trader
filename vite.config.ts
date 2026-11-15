@@ -19,6 +19,8 @@ export default defineConfig({
   vite: {
     server: {
       allowedHosts: [".sslip.io"],
+      port: 3010,
+      strictPort: false,
     },
   },
 });

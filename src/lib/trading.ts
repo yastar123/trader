@@ -135,3 +135,53 @@ export function formatMinCloseDuration(minutes: number): string {
   if (rem === 0) return `${hours} jam (${safe} menit)`;
   return `${hours} jam ${rem} menit`;
 }
+
+export function calculateLotPriceUsd(params: {
+  lot: number;
+  price: number;
+  contractSize: number;
+  leverage: number;
+  quoteInJpy?: boolean;
+}): {
+  lot: number;
+  notionalUsd: number;
+  marginUsd: number;
+} {
+  const safeLot = Number.isFinite(params.lot) && params.lot > 0 ? Math.min(100, params.lot) : 0.01;
+  const safePrice = Number.isFinite(params.price) && params.price > 0 ? params.price : 1;
+  const safeContract =
+    Number.isFinite(params.contractSize) && params.contractSize > 0 ? params.contractSize : 100000;
+  const safeLeverage =
+    Number.isFinite(params.leverage) && params.leverage > 0 ? params.leverage : 500;
+
+  const notionalUsd = params.quoteInJpy
+    ? safeLot * safeContract
+    : safeLot * safeContract * safePrice;
+  const marginUsd = Math.max(1, Number((notionalUsd / safeLeverage).toFixed(2)));
+
+  return {
+    lot: Number(safeLot.toFixed(2)),
+    notionalUsd: Number(notionalUsd.toFixed(2)),
+    marginUsd,
+  };
+}
+
+export function calculateLotFromStakeUsd(params: {
+  stakeUsd: number;
+  price: number;
+  contractSize: number;
+  leverage: number;
+  quoteInJpy?: boolean;
+}): number {
+  const safeStake = Number.isFinite(params.stakeUsd) && params.stakeUsd > 0 ? params.stakeUsd : 100;
+  const safePrice = Number.isFinite(params.price) && params.price > 0 ? params.price : 1;
+  const safeContract =
+    Number.isFinite(params.contractSize) && params.contractSize > 0 ? params.contractSize : 100000;
+  const safeLeverage =
+    Number.isFinite(params.leverage) && params.leverage > 0 ? params.leverage : 500;
+
+  const unitNotional = params.quoteInJpy ? safeContract : safeContract * safePrice;
+  const unitMargin = Math.max(0.01, unitNotional / safeLeverage);
+  const rawLot = safeStake / unitMargin;
+  return Number(Math.max(0.01, Math.min(100, rawLot)).toFixed(2));
+}
